@@ -38,6 +38,7 @@ class ShelfView(
     private val books = mutableListOf<Book>()
     private val adapter = BookAdapter()
     private val hintText: TextView
+    private lateinit var headerBox: LinearLayout
     private lateinit var recyclerView: RecyclerView
     private val mainHandler = Handler(Looper.getMainLooper())
     private val ioExecutor: ExecutorService = Executors.newFixedThreadPool(4)
@@ -79,6 +80,15 @@ class ShelfView(
             setPadding(dip(32), dip(4), dip(32), dip(8))
         }
 
+        // 标题栏容器：不透明背景 + 提升层级，滚动时封面不会盖住标题与按钮
+        headerBox = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(bg)
+            elevation = dip(8).toFloat()
+            addView(topRow)
+            addView(hintText)
+        }
+
         val recycler = RecyclerView(activity).apply {
             layoutManager = GridLayoutManager(activity, 6)
             adapter = this@ShelfView.adapter
@@ -93,8 +103,7 @@ class ShelfView(
             orientation = LinearLayout.VERTICAL
             clipChildren = false
             clipToPadding = false
-            addView(topRow)
-            addView(hintText)
+            addView(headerBox)
             addView(
                 recycler,
                 LinearLayout.LayoutParams(
@@ -164,6 +173,7 @@ class ShelfView(
     fun refreshTheme() {
         val bg = Theme.bgColor(activity)
         hintText.setTextColor(Theme.secondaryColor(bg))
+        headerBox.setBackgroundColor(bg)
         adapter.notifyDataSetChanged()
     }
 
