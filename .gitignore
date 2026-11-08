@@ -1,0 +1,23 @@
+# Android build
+*.apk
+*.aab
+app/build/
+build/
+.gradle/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Reference code (downloaded sources)
+reference/
+
+# Local test screenshots
+/tv_*.png
+/v_*.png
+/tv_screen*.png
+
+# Kotlin
+.kotlin/

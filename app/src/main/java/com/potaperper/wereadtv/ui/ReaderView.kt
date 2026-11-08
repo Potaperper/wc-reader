@@ -1,0 +1,954 @@
+package com.potaperper.wereadtv.ui
+
+import android.annotation.SuppressLint
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.view.KeyEvent
+import android.view.ViewGroup
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.AdapterView
+import android.widget.BaseAdapter
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ListView
+import android.widget.ScrollView
+import android.widget.TextView
+import com.potaperper.wereadtv.model.Book
+import com.potaperper.wereadtv.model.Chapter
+import com.potaperper.wereadtv.model.ChapterContent
+import com.potaperper.wereadtv.util.Theme
+
+/**
+ * 阅读器：WebView + CSS 多栏分页（epub.js 同款机制）。
+ * 每一栏即一页，浏览器保证只在行边界换栏，杜绝半行字；
+ * 原书 CSS 的行距/负边距不再影响分页正确性。
+ * 顶栏为浮层（不挤压正文）；目录书名独立置顶。
+ */
+class ReaderView(
+    private val activity: MainActivity,
+    private val book: Book,
+    private val onBackToShelf: () -> Unit,
+) : FrameLayout(activity) {
+
+    companion object {
+        private fun pageHtml(bg: Int, fg: Int) = """
+<!DOCTYPE html>
+<html><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<style id='chapter-style'></style>
+<style>
+html,body{margin:0;padding:0;background:${Theme.toHex(bg)};height:100%;overflow:hidden;}
+#viewport{position:fixed;inset:0;overflow:hidden;}
+#pager{
+  height:100%;box-sizing:border-box;
+  color:${Theme.toHex(fg)};
+  font-size:24px;line-height:1.8;
+  column-fill:auto;
+  transform:translateX(0);
+}
+#pager img{max-width:100%!important;max-height:calc(100vh - 80px)!important;height:auto!important;margin:0.5em auto;border-radius:4px;}
+#pager a{color:#4a90d9;text-decoration:none;}
+/* 脚注标记：纯上标彩色数字（无方框），注释内容通过长按 OK / 顶栏“注释”查看 */
+#pager sup.wr-note{font-size:0.68em;line-height:1;color:#3a7bd5;vertical-align:super;margin:0 1px;font-weight:normal;}
+</style>
+<script>
+window.__page = 0;
+window.__totalPages = 1;
+window.__themeBg = '${Theme.toHex(bg)}';
+window.__marginPx = 72;
+window.__instant = false;
+var GAP_FACTOR = 2;  /* 栏间距 = 2×边距，视觉上即左右页边距 */
+
+function pagerEl(){ return document.getElementById('pager'); }
+/** 多栏布局：列宽 = 屏宽 - 2×边距；gap 恰好补齐使每页平移正好一个屏宽 */
+function relayout(){
+  var pager = pagerEl();
+  var w = window.innerWidth;
+  var colw = w - 2 * window.__marginPx;
+  var gap = 2 * window.__marginPx;
+  pager.style.columnWidth = colw + 'px';
+  pager.style.columnGap = gap + 'px';
+  pager.style.paddingLeft = window.__marginPx + 'px';
+  pager.style.paddingRight = window.__marginPx + 'px';
+  pager.style.width = w + 'px';
+  var unit = colw + gap;  /* = innerWidth */
+  window.__totalPages = Math.max(1, Math.round((pager.scrollWidth - 2 * window.__marginPx) / unit + 0.5));
+  console.log('PAGER_DBG ' + JSON.stringify({
+    w: w, colw: colw, gap: gap, scrollW: pager.scrollWidth,
+    total: window.__totalPages, page: window.__page,
+    textLen: (pager.textContent || '').length
+  }));
+}
+function updateHud(){
+  var hud = document.getElementById('hud');
+  if (hud) hud.textContent = (window.__page + 1) + ' / ' + window.__totalPages;
+}
+function goTo(p, instant){
+  relayout();
+  window.__page = Math.max(0, Math.min(p, window.__totalPages - 1));
+  var pager = pagerEl();
+  var unit = window.innerWidth;  /* colw + gap = innerWidth */
+  /* 第 0 页的左边距已由 padding-left 提供，不额外平移 */
+  var offset = -window.__page * unit;
+  var smooth = (instant === true) ? false : !window.__instant;
+  pager.style.transition = smooth ? 'transform .22s ease-out' : 'none';
+  pager.style.transform = 'translateX(' + offset + 'px)';
+  updateHud();
+}
+window.tryNext = function(){ relayout(); if (window.__page >= window.__totalPages - 1) return false; goTo(window.__page + 1); return true; };
+window.tryPrev = function(){ relayout(); if (window.__page <= 0) return false; goTo(window.__page - 1); return true; };
+window.pageInfo = function(){ return window.__page + ',' + window.__totalPages; };
+window.setZoom = function(fontPx){
+  pagerEl().style.fontSize = fontPx + 'px';
+  window.__page = 0;
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ goTo(0, true); }); });
+};
+window.setLayoutPrefs = function(lhRatio, marginPx, marginYPx, instant){
+  var pager = pagerEl();
+  pager.style.lineHeight = lhRatio;
+  window.__marginPx = marginPx;
+  pager.style.paddingTop = marginYPx + 'px';
+  pager.style.paddingBottom = marginYPx + 'px';
+  window.__instant = instant;
+  window.__page = 0;
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ goTo(0, true); }); });
+};
+window.setTheme = function(bg, fg){
+  window.__themeBg = bg;
+  applyShellOverride();
+  pagerEl().style.color = fg;
+};
+window.loadChapterContent = function(bodyHtml, styleHtml){
+  window.__rawBody = bodyHtml;
+  window.__rawStyle = styleHtml;
+  renderCurrent();
+};
+function renderCurrent(){
+  var pager = pagerEl();
+  pager.style.visibility = 'hidden';
+  var style = document.getElementById('chapter-style');
+  if (!style) { style = document.createElement('style'); style.id = 'chapter-style'; document.head.appendChild(style); }
+  style.textContent = window.__rawStyle || '';
+  pager.innerHTML = window.__rawBody || '';
+  resolveAssets(pager);
+  extractNotes(pager);
+  applyShellOverride();
+  window.__page = 0;
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    goTo(0, true);
+    pager.style.visibility = 'visible';
+    try { AndroidBridge.onRendered(window.__totalPages); } catch(e){}
+  });});
+}
+/** 提取脚注：把 <img class="qqreader-footnote" alt="注释全文"> 替换为上标数字标记 */
+function extractNotes(root){
+  var imgs = root.querySelectorAll('img');
+  var n = 0;
+  for (var i = 0; i < imgs.length; i++) {
+    var im = imgs[i];
+    var cls = im.getAttribute('class') || '';
+    var alt = im.getAttribute('alt') || '';
+    var src = im.getAttribute('src') || '';
+    var isFootnote = cls.indexOf('footnote') >= 0 || (alt.length > 30 && src.indexOf('note') >= 0);
+    if (isFootnote && alt) {
+      n++;
+      var sup = document.createElement('sup');
+      sup.className = 'wr-note';
+      sup.textContent = '' + n;
+      im.parentNode.replaceChild(sup, im);
+    } else {
+      // 普通图片：加载失败隐藏，避免出现白底块
+      im.addEventListener('error', function(){ this.style.display = 'none'; });
+      if (im.complete && im.naturalWidth === 0) im.style.display = 'none';
+    }
+  }
+  // 兜底：1.5 秒后仍未加载成功的图片一律隐藏
+  setTimeout(function(){
+    var rest = root.querySelectorAll('img');
+    for (var k = 0; k < rest.length; k++) {
+      var r = rest[k];
+      if (!r.complete || r.naturalWidth === 0) r.style.display = 'none';
+    }
+    goTo(window.__page, true);
+  }, 1500);
+}
+function applyShellOverride(){
+  var bg = window.__themeBg || '#161616';
+  document.documentElement.style.setProperty('background', bg, 'important');
+  document.body.style.setProperty('background', bg, 'important');
+  document.body.style.setProperty('overflow', 'hidden', 'important');
+  document.body.style.setProperty('margin', '0', 'important');
+  document.body.style.setProperty('padding', '0', 'important');
+  document.body.style.setProperty('height', '100%', 'important');
+}
+function resolveAssets(root){
+  var base = 'https://res.weread.qq.com/wrepub/';
+  var tags = root.querySelectorAll('img');
+  for (var i = 0; i < tags.length; i++) fixSrc(tags[i], base);
+  var links = root.querySelectorAll('link[href]');
+  for (var i = 0; i < links.length; i++) { links[i].parentNode.removeChild(links[i]); }
+}
+function fixSrc(el, base){
+  var src = el.getAttribute('src') || '';
+  if (!src || src.indexOf('http') === 0 || src.indexOf('data:') === 0) return;
+  if (src.indexOf('/') === 0) { el.setAttribute('src', 'https://weread.qq.com' + src); return; }
+  el.setAttribute('src', base + src.split('/').pop());
+}
+</script>
+</head><body>
+<div id='viewport'><div id='pager'></div></div>
+<div id='hud' style='position:fixed;right:20px;bottom:14px;font-size:14px;opacity:.55;color:${Theme.toHex(Theme.secondaryColor(bg))};'></div>
+</body></html>
+""".trimIndent()
+    }
+
+    private val webView: WebView
+    private val topBar: FrameLayout
+    private val topBarHint: TextView
+    private val titleText: TextView
+    private val catalogOverlay: FrameLayout
+    private val catalogList: ListView
+    private val catalogAdapter = CatalogAdapter()
+    private val catalogTitle: TextView
+    private val notesOverlay: FrameLayout
+    private val notesList: ListView
+    private val notesAdapter = NotesAdapter()
+    private val notesDetail: FrameLayout
+    private val notesDetailText: TextView
+    private val notesScroll: ScrollView
+    private var notes: List<Pair<Int, String>> = emptyList()
+    private val loadingText: TextView
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private var chapters: List<Chapter> = emptyList()
+    private var currentChapterIdx = 0
+    private var contentFormat = "epub"
+    private var pageLoaded = false
+    private var pendingContent: Pair<String, String>? = null
+
+    private var loadSeq = 0
+    fun currentLoadSeq(): Int = loadSeq
+
+    /** 顶栏显示时刻：用于双击返回判定 */
+    private var topBarShownAt = 0L
+
+    /** 长按跳章防重复 */
+    private var longPressFired = false
+
+    /** 顶栏三个按钮，用于循环移焦点 */
+    private var topBarFocusables: List<TextView> = emptyList()
+
+    private fun moveTopBarFocus(dir: Int) {
+        val list = topBarFocusables
+        if (list.isEmpty()) return
+        val idx = list.indexOfFirst { it.hasFocus() }
+        val next = when {
+            idx < 0 -> 0
+            else -> (idx + dir + list.size) % list.size
+        }
+        list[next].requestFocus()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val action = event.action
+        if (action != KeyEvent.ACTION_DOWN && action != KeyEvent.ACTION_UP) return true
+
+        if (notesOverlay.visibility == VISIBLE) {
+            if (action == KeyEvent.ACTION_DOWN) {
+                if (event.keyCode == KeyEvent.KEYCODE_BACK) { dismissNotes(); return true }
+                if (notesDetail.visibility == VISIBLE) {
+                    // 注释详情：上下键翻动文本
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_UP -> {
+                            notesScroll.smoothScrollBy(0, -notesScrollStep()); return true
+                        }
+                        KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            notesScroll.smoothScrollBy(0, notesScrollStep()); return true
+                        }
+                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> return true
+                    }
+                }
+            }
+            return super.dispatchKeyEvent(event)
+        }
+        if (catalogOverlay.visibility == VISIBLE) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK && action == KeyEvent.ACTION_DOWN) {
+                toggleCatalog(false); return true
+            }
+            return super.dispatchKeyEvent(event)
+        }
+        if (topBar.visibility == VISIBLE) {
+            if (action == KeyEvent.ACTION_DOWN) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_BACK -> { exitReader(); return true }
+                    // 顶栏内自行循环移动焦点，避免焦点逃逸到 WebView 导致按键失控
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> {
+                        moveTopBarFocus(-1); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        moveTopBarFocus(+1); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                        val f = topBar.findFocus()
+                        if (f is TextView) { f.performClick(); return true }
+                    }
+                }
+            }
+            return super.dispatchKeyEvent(event)
+        }
+
+        val now = System.currentTimeMillis()
+        val vertical = Theme.verticalPaging(activity)
+        val isNext = event.keyCode in (if (vertical) intArrayOf(KeyEvent.KEYCODE_DPAD_DOWN) else intArrayOf(KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN))
+        val isPrev = event.keyCode in (if (vertical) intArrayOf(KeyEvent.KEYCODE_DPAD_UP) else intArrayOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP))
+        val isCenter = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER
+
+        // ---------- 中心键：短按看目录，长按看注释 ----------
+        if (isCenter) {
+            if (action == KeyEvent.ACTION_DOWN) {
+                if (!centerKeyDown) {
+                    centerKeyDown = true
+                    centerDownAt = now
+                    centerHold = 1
+                    longPressFired = false
+                } else {
+                    centerHold++
+                }
+                if (centerHold >= 3 && !longPressFired) {
+                    longPressFired = true
+                    requestNotes()
+                    resetTap()
+                }
+                return true
+            }
+            centerKeyDown = false
+            if (longPressFired) return true
+            val dur = now - centerDownAt
+            val rapid = registerTap("center", now)
+            if (dur >= 450 || rapid >= 3) {
+                requestNotes()
+                resetTap()
+            } else {
+                toggleCatalog(true)
+            }
+            return true
+        }
+
+        // ---------- 方向键 ----------
+        if (!isNext && !isPrev) {
+            return when (event.keyCode) {
+                KeyEvent.KEYCODE_MENU -> { if (action == KeyEvent.ACTION_DOWN) activity.showThemePanel(); true }
+                KeyEvent.KEYCODE_BACK -> {
+                    if (action == KeyEvent.ACTION_DOWN) { topBarShownAt = now; showTopBar() }
+                    true
+                }
+                else -> super.dispatchKeyEvent(event)
+            }
+        }
+
+        val dir = if (isNext) 1 else -1
+        val jumpMode = Theme.longPressJump(activity)
+        val keyName = if (isNext) "next" else "prev"
+
+        if (!jumpMode) {
+            // 连续快进模式：按下即翻页（长按随 repeat 持续翻页）
+            if (action == KeyEvent.ACTION_DOWN) nextPageOrChapter(dir)
+            return true
+        }
+
+        if (action == KeyEvent.ACTION_DOWN) {
+            // 关键：用"上一个 DOWN 后有没有等到 UP"判断是否仍按着。
+            // 部分遥控器长按会连发 repeatCount=0 的 DOWN（中间无 UP），
+            // 不能靠时间戳（会被不断刷新），只能靠这个状态。
+            if (!dirKeyDown) {
+                dirKeyDown = true
+                dirDownAt = now
+                dirHold = 1
+                longPressFired = false
+            } else {
+                dirHold++
+            }
+            return when {
+                dirHold >= 3 -> {
+                    if (!longPressFired) {
+                        longPressFired = true
+                        jumpChapter(dir)
+                        resetTap()
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
+
+        dirKeyDown = false
+        if (longPressFired) return true
+        val dur = now - dirDownAt
+        val rapid = registerTap(keyName, now)
+        if (dur >= 450 || rapid >= 3) {
+            jumpChapter(dir)
+            resetTap()
+        } else {
+            nextPageOrChapter(dir)
+        }
+        return true
+    }
+
+    /** 按下状态（用于识别"长按连发 DOWN"的遥控器） */
+    private var dirKeyDown = false
+    private var dirHold = 0
+    private var centerKeyDown = false
+    private var centerHold = 0
+
+    /** 中心键/方向键按下时刻 */
+    private var centerDownAt = 0L
+    private var dirDownAt = 0L
+
+    /** 快速连按统计：同键 500ms 内的连续抬起计数 */
+    private var tapKeyName = ""
+    private var tapCount = 0
+    private var tapLastAt = 0L
+
+    private fun registerTap(name: String, now: Long): Int {
+        if (name == tapKeyName && now - tapLastAt < 700) {
+            tapCount++
+        } else {
+            tapKeyName = name
+            tapCount = 1
+        }
+        tapLastAt = now
+        return tapCount
+    }
+
+    private fun resetTap() {
+        tapCount = 0
+        tapKeyName = ""
+        tapLastAt = 0L
+    }
+
+    init {
+        val bg = Theme.bgColor(activity)
+        setBackgroundColor(bg)
+        val barFg = Theme.fgColor(bg)
+
+        // ---- 顶栏（浮层，不挤压正文）----
+        titleText = TextView(activity).apply {
+            textSize = 18f
+            setTextColor(barFg)
+            maxLines = 1
+        }
+        topBarHint = TextView(activity).apply {
+            text = "提示：再按一次返回键直接回书架"
+            textSize = 13f
+            setTextColor(Theme.secondaryColor(bg))
+            setPadding(dip(24), 0, dip(24), dip(6))
+            visibility = GONE
+        }
+        val topBarButtons = listOf(
+            barButton("目录", barFg) { toggleCatalog(true) },
+            barButton("注释", barFg) { requestNotes() },
+            barButton("字号", barFg) { activity.cycleFontSize() },
+            barButton("设置", barFg) { activity.showThemePanel() },
+        )
+        val btnRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(activity).apply {
+                text = ""
+                layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+            })
+            topBarButtons.forEach { addView(it) }
+        }
+        topBarFocusables = topBarButtons
+        topBar = FrameLayout(activity).apply {
+            setBackgroundColor(if (Theme.isDark(bg)) 0xF2181818.toInt() else 0xF2F2EDE2.toInt())
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(topBarHint)
+                addView(LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dip(24), dip(8), dip(24), dip(10))
+                    addView(titleText, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(btnRow)
+                })
+            })
+            visibility = GONE
+        }
+
+        // ---- WebView ----
+        webView = WebView(activity).apply {
+            @SuppressLint("SetJavaScriptEnabled")
+            settings.javaScriptEnabled = true
+            setBackgroundColor(Color.TRANSPARENT)
+            addJavascriptInterface(Bridge(), "AndroidBridge")
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    pageLoaded = true
+                    applyZoom()
+                    applyLayoutPrefs()
+                    pendingContent?.let { (b, s) -> deliver(b, s) }
+                }
+            }
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(message: android.webkit.ConsoleMessage?): Boolean {
+                    message?.let { android.util.Log.i("ReaderJS", it.message()) }
+                    return true
+                }
+            }
+        }
+
+        loadingText = TextView(activity).apply {
+            text = "加载中..."
+            textSize = 20f
+            setTextColor(Theme.secondaryColor(bg))
+            gravity = Gravity.CENTER
+            visibility = GONE
+        }
+
+        val contentWrap = FrameLayout(activity).apply {
+            addView(webView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(loadingText, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+        addView(contentWrap, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        // ---- 目录浮层（书名独立置顶，不随章节滚动）----
+        val catBg = if (Theme.isDark(bg)) 0xF0141414.toInt() else 0xF0FAF7F0.toInt()
+        catalogTitle = TextView(activity).apply {
+            text = book.title
+            textSize = 20f
+            setTextColor(Theme.accentColor(bg))
+            setPadding(dip(24), dip(20), dip(24), dip(12))
+        }
+        catalogList = ListView(activity).apply {
+            adapter = catalogAdapter
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(dip(16), 0, dip(16), dip(24))
+        }
+        catalogList.onItemClickListener =
+            AdapterView.OnItemClickListener { _, _, position, _ ->
+                toggleCatalog(false)
+                loadChapter(position, 0)
+            }
+        catalogOverlay = FrameLayout(activity).apply {
+            visibility = GONE
+            setBackgroundColor(0x99000000.toInt())
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(catBg)
+                addView(catalogTitle)
+                addView(catalogList, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f,
+                ))
+            }, LayoutParams(dip(620), LayoutParams.MATCH_PARENT, Gravity.START))
+            setOnClickListener { toggleCatalog(false) }
+        }
+
+        addView(catalogOverlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        // ---- 注释浮层（长按 OK 打开）：书单 + 详情两层 ----
+        val notesBg = if (Theme.isDark(bg)) 0xF0141414.toInt() else 0xF0FAF7F0.toInt()
+        notesList = ListView(activity).apply {
+            adapter = notesAdapter
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(dip(16), 0, dip(16), dip(24))
+        }
+        notesList.onItemClickListener =
+            AdapterView.OnItemClickListener { _, _, position, _ ->
+                notes.getOrNull(position)?.let { showNoteDetail(it.second) }
+            }
+        val notesTitle = TextView(activity).apply {
+            text = "本章注释"
+            textSize = 20f
+            setTextColor(Theme.accentColor(bg))
+            setPadding(dip(24), dip(20), dip(24), dip(12))
+        }
+        val notesHint = TextView(activity).apply {
+            text = "OK 查看 · 返回键关闭"
+            textSize = 13f
+            setTextColor(Theme.secondaryColor(bg))
+            setPadding(dip(24), dip(4), dip(24), dip(8))
+        }
+        notesDetailText = TextView(activity).apply {
+            textSize = 17f
+            setTextColor(Theme.fgColor(bg))
+            setLineSpacing(0f, 1.6f)
+            setPadding(dip(36), dip(28), dip(36), dip(28))
+            gravity = Gravity.START
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        val screenW = resources.displayMetrics.widthPixels
+        val screenH = resources.displayMetrics.heightPixels
+        notesScroll = ScrollView(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setBackgroundColor(notesBg)
+            setPadding(dip(8), dip(8), dip(8), dip(8))
+            addView(notesDetailText)
+        }
+        notesDetail = FrameLayout(activity).apply {
+            visibility = GONE
+            setBackgroundColor(0xCC000000.toInt())
+            // 居中卡片：屏幕 72% × 62%，不会顶到屏幕边缘被返回栏遮挡
+            addView(notesScroll, LayoutParams(
+                (screenW * 0.72f).toInt(), (screenH * 0.62f).toInt(), Gravity.CENTER,
+            ))
+        }
+        notesOverlay = FrameLayout(activity).apply {
+            visibility = GONE
+            setBackgroundColor(0x99000000.toInt())
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(notesBg)
+                addView(notesTitle)
+                addView(notesHint)
+                addView(notesList, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f,
+                ))
+            }, LayoutParams((screenW * 0.52f).toInt(), LayoutParams.MATCH_PARENT, Gravity.START))
+            addView(notesDetail, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+        addView(notesOverlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        addView(topBar, LayoutParams(LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+
+        webView.loadDataWithBaseURL(
+            "https://weread.qq.com/", pageHtml(bg, Theme.fgColor(bg)), "text/html", "utf-8", null,
+        )
+    }
+
+    /** 描边方框按钮：透明底 + 主题色描边，深浅背景都清晰 */
+    private fun barButton(text: String, fgColor: Int, tag: String? = null, onClick: () -> Unit): TextView =
+        TextView(activity).apply {
+            this.text = text
+            if (tag != null) this.tag = tag
+            isFocusable = true
+            isFocusableInTouchMode = true
+            textSize = 16f
+            setTextColor(fgColor)
+            setPadding(dip(22), dip(8), dip(22), dip(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dip(8).toFloat()
+                setStroke(dip(2), fgColor)
+            }
+            setOnClickListener { onClick() }
+            setOnFocusChangeListener { v, hasFocus ->
+                background = GradientDrawable().apply {
+                    cornerRadius = dip(8).toFloat()
+                    setStroke(dip(2), if (hasFocus) 0xFFFFFFFF.toInt() else fgColor)
+                    setColor(if (hasFocus) 0x40888888.toInt() else 0x00000000)
+                }
+                (v as TextView).setTextColor(if (hasFocus) 0xFFFFFFFF.toInt() else fgColor)
+            }
+        }
+
+    // ---------- 数据 ----------
+
+    fun setChapters(list: List<Chapter>) {
+        chapters = list
+        catalogAdapter.notifyDataSetChanged()
+    }
+
+    fun openAt(chapterUid: Long, @Suppress("UNUSED_PARAMETER") chapterOffset: Int) {
+        val idx = chapters.indexOfFirst { it.chapterUid == chapterUid }
+        loadChapter(if (idx >= 0) idx else 0, 0)
+    }
+
+    fun nextChapterUid(): Long? =
+        chapters.getOrNull(currentChapterIdx + 1)?.chapterUid
+
+    fun showChapterContent(content: ChapterContent, seq: Int) {
+        if (seq != loadSeq) return
+        contentFormat = content.format
+        notes = extractNotesFromHtml(content.html)
+        notesAdapter.notifyDataSetChanged()
+        val body = extractBody(content.html)
+        pendingContent = body to content.style
+        if (pageLoaded) deliver(body, content.style)
+    }
+
+    /** 从章节 HTML 中提取脚注（alt 属性），与 JS 标记顺序一致 */
+    private fun extractNotesFromHtml(html: String): List<Pair<Int, String>> {
+        val out = mutableListOf<Pair<Int, String>>()
+        val imgRegex = Regex("<img[^>]*qqreader-footnote[^>]*>", RegexOption.IGNORE_CASE)
+        for (m in imgRegex.findAll(html)) {
+            val alt = Regex("alt=\"([^\"]*)\"").find(m.value)?.groupValues?.get(1) ?: ""
+            if (alt.isNotEmpty()) out.add(out.size to alt)
+        }
+        return out
+    }
+
+    private fun extractBody(html: String): String {
+        var h = html
+        val xmlEnd = h.indexOf("?>")
+        if (h.trimStart().startsWith("<?xml") && xmlEnd >= 0) h = h.substring(xmlEnd + 2)
+        val lower = h.lowercase()
+        val bodyStart = lower.indexOf("<body")
+        if (bodyStart < 0) return h
+        val contentStart = lower.indexOf(">", bodyStart) + 1
+        val bodyEnd = lower.lastIndexOf("</body>")
+        if (contentStart <= 0 || bodyEnd <= contentStart) return h
+        return h.substring(contentStart, bodyEnd)
+    }
+
+    private fun deliver(body: String, style: String) {
+        pendingContent = null
+        loadingText.visibility = GONE
+        webView.evaluateJavascript(
+            "window.loadChapterContent(${jsStr(body)}, ${jsStr(style)})", null,
+        )
+    }
+
+    fun showChapterError(msg: String) {
+        loadingText.visibility = VISIBLE
+        loadingText.text = "加载失败: $msg"
+    }
+
+    fun setLoading(loading: Boolean) {
+        loadingText.visibility = if (loading) VISIBLE else GONE
+        if (loading) loadingText.text = "加载中..."
+    }
+
+    fun loadChapter(idx: Int, resumeOffset: Int) {
+        if (idx < 0 || idx >= chapters.size) return
+        if (currentChapterIdx != idx && chapters.isNotEmpty()) saveProgress()
+        currentChapterIdx = idx
+        loadSeq++
+        setLoading(true)
+        titleText.text = "${book.title} · ${chapters[idx].title}"
+        activity.loadChapterContent(chapters[idx].chapterUid, loadSeq)
+    }
+
+    fun onChapterLoadFinished() {
+        chapterLoading = false
+    }
+    private var chapterLoading = false
+
+    fun currentChapter(): Chapter? = chapters.getOrNull(currentChapterIdx)
+
+    fun applyZoom() {
+        webView.evaluateJavascript("window.setZoom(${activity.fontSizeSp})", null)
+    }
+
+    fun applyTheme() {
+        val bg = Theme.bgColor(activity)
+        val fg = Theme.fgColor(bg)
+        setBackgroundColor(bg)
+        topBar.setBackgroundColor(if (Theme.isDark(bg)) 0xF2181818.toInt() else 0xF2F2EDE2.toInt())
+        titleText.setTextColor(fg)
+        webView.evaluateJavascript(
+            "window.setTheme('${Theme.toHex(bg)}', '${Theme.toHex(fg)}')", null,
+        )
+    }
+
+    fun applyLayoutPrefs() {
+        webView.evaluateJavascript(
+            "window.setLayoutPrefs(${Theme.lineHeight(activity)}, ${Theme.marginPx(activity)}, ${Theme.marginYPx(activity)}, ${Theme.instantPage(activity)})",
+            null,
+        )
+    }
+
+    // ---------- 遥控器 ----------
+
+    private fun jumpChapter(dir: Int, toast: Boolean = true) {
+        val target = currentChapterIdx + dir
+        if (target in chapters.indices) {
+            loadChapter(target, 0)
+            if (toast) {
+                val t = chapters.getOrNull(target)?.title ?: ""
+                val prefix = if (dir > 0) "已跳到下一章" else "已跳到上一章"
+                activity.showToast(if (t.isNotEmpty()) "$prefix：$t" else prefix)
+            }
+        } else if (toast) {
+            activity.showToast(if (dir > 0) "已经是最后一章" else "已经是第一章")
+        }
+    }
+
+    /** 翻页；章内边界继续按则跨章 */
+    private fun nextPageOrChapter(dir: Int) {
+        val probe = if (dir > 0) "window.tryNext()" else "window.tryPrev()"
+        webView.evaluateJavascript(probe) { moved ->
+            mainHandler.post {
+                val isTrue = moved?.contains("true") == true
+                if (!isTrue) {
+                    jumpChapter(dir, toast = false)
+                } else {
+                    checkChapterEnd()
+                }
+            }
+        }
+    }
+
+    private fun checkChapterEnd() {
+        webView.evaluateJavascript("window.pageInfo()") { info ->
+            val raw = info?.trim()?.trim('"') ?: return@evaluateJavascript
+            val parts = raw.split(",")
+            if (parts.size == 2) {
+                val page = parts[0].trim().toIntOrNull() ?: 0
+                val total = parts[1].trim().toIntOrNull() ?: 1
+                if (total > 0 && page >= total - 1) saveProgress()
+            }
+        }
+    }
+
+    private fun showTopBar() {
+        topBar.visibility = VISIBLE
+        topBarHint.visibility = VISIBLE
+        topBar.findFocus()?.clearFocus()
+        topBarFocusables.firstOrNull()?.requestFocus()
+    }
+
+    private fun hideTopBar() {
+        topBarHint.visibility = GONE
+        topBar.visibility = GONE
+        webView.requestFocus()
+    }
+
+    private fun exitReader() {
+        saveProgress()
+        onBackToShelf()
+    }
+
+    fun saveProgress() {
+        val chapter = currentChapter() ?: return
+        activity.reportProgress(chapter.chapterUid, 0, 0, contentFormat)
+    }
+
+    // ---------- 目录 ----------
+
+    private fun toggleCatalog(show: Boolean) {
+        catalogOverlay.visibility = if (show) VISIBLE else GONE
+        if (show) {
+            catalogList.post {
+                catalogList.setSelection(currentChapterIdx)
+                catalogList.requestFocus()
+            }
+        } else {
+            webView.requestFocus()
+        }
+    }
+
+    inner class CatalogAdapter : BaseAdapter() {
+        override fun getCount(): Int = chapters.size
+        override fun getItem(position: Int): Chapter = chapters[position]
+        override fun getItemId(position: Int): Long = chapters[position].chapterUid
+
+        override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+            val tv = (convertView as? TextView) ?: TextView(context).apply {
+                textSize = 16f
+                setPadding(dip(20), dip(14), dip(20), dip(14))
+            }
+            val chapter = chapters[position]
+            tv.text = "　".repeat((chapter.level - 1).coerceAtLeast(0)) + chapter.title
+            val bg = Theme.bgColor(activity)
+            tv.setTextColor(if (position == currentChapterIdx) Theme.accentColor(bg) else Theme.fgColor(bg))
+            return tv
+        }
+    }
+
+    // ---------- 注释 ----------
+
+    private fun requestNotes() {
+        if (notes.isEmpty()) {
+            activity.showToast("本章没有注释")
+            return
+        }
+        hideTopBar()  // 收起顶栏，避免遮挡注释浮窗
+        notesDetail.visibility = GONE
+        notesOverlay.visibility = VISIBLE
+        notesList.post {
+            notesList.setSelection(0)
+            notesList.requestFocus()
+        }
+    }
+
+    private fun showNoteDetail(text: String) {
+        notesDetailText.text = text
+        notesDetail.visibility = VISIBLE
+        notesScroll.post { notesScroll.scrollTo(0, 0) }
+        notesScroll.requestFocus()
+    }
+
+    private fun notesScrollStep(): Int =
+        (notesScroll.height * 0.8f).toInt().coerceAtLeast(dip(120))
+
+    private fun dismissNotes() {
+        if (notesDetail.visibility == VISIBLE) {
+            notesDetail.visibility = GONE
+            notesList.requestFocus()
+        } else {
+            notesOverlay.visibility = GONE
+            webView.requestFocus()
+        }
+    }
+
+    inner class NotesAdapter : BaseAdapter() {
+        override fun getCount(): Int = notes.size
+        override fun getItem(position: Int): Pair<Int, String> = notes[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+            val tv = (convertView as? TextView) ?: TextView(context).apply {
+                textSize = 15f
+                setPadding(dip(20), dip(14), dip(20), dip(14))
+            }
+            val (id, text) = notes[position]
+            tv.text = "${id + 1}. ${text.take(40)}${if (text.length > 40) "…" else ""}"
+            tv.setTextColor(Theme.fgColor(Theme.bgColor(activity)))
+            return tv
+        }
+    }
+
+    // ---------- JS 桥 ----------
+
+    inner class Bridge {
+        @JavascriptInterface
+        fun onRendered(totalPages: Int) {
+            mainHandler.post { loadingText.visibility = GONE }
+        }
+    }
+
+    // ---------- 工具 ----------
+
+    private fun jsStr(s: String): String {
+        val sb = StringBuilder(s.length + 16)
+        sb.append('"')
+        for (ch in s) {
+            when (ch) {
+                '"' -> sb.append("\\\"")
+                '\\' -> sb.append("\\\\")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                '<' -> sb.append("\\u003c")
+                '>' -> sb.append("\\u003e")
+                '&' -> sb.append("\\u0026")
+                else -> if (ch.code < 0x20) sb.append("\\u%04x".format(ch.code)) else sb.append(ch)
+            }
+        }
+        sb.append('"')
+        return sb.toString()
+    }
+
+    private fun dip(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    // ---------- 资源释放 ----------
+
+    private var released = false
+
+    fun release() {
+        if (released) return
+        released = true
+        webView.apply {
+            stopLoading()
+            (parent as? ViewGroup)?.removeView(this)
+            destroy()
+        }
+    }
+}
