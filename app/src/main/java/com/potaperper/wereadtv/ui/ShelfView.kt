@@ -38,6 +38,9 @@ class ShelfView(
     private val books = mutableListOf<Book>()
     private val adapter = BookAdapter()
     private val hintText: TextView
+    private lateinit var titleView: TextView
+    private lateinit var refreshBtn: TextView
+    private lateinit var settingsBtn: TextView
     private lateinit var headerBox: LinearLayout
     private lateinit var recyclerView: RecyclerView
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -50,34 +53,45 @@ class ShelfView(
         val bg = Theme.bgColor(activity)
         setBackgroundColor(bg)
         val fg = Theme.fgColor(bg)
+        val secondary = Theme.secondaryColor(bg)
 
-        // ---- 顶栏：标题 + 账号/设置 按钮 ----
+        // ---- 顶栏：两行标题 + 图标按钮 ----
         val title = TextView(activity).apply {
-            text = "微信读书 · 书架"
-            textSize = 26f
+            text = "微信读书"
+            textSize = 30f
             setTextColor(fg)
-            setPadding(dip(32), dip(24), dip(32), dip(8))
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            letterSpacing = 0.04f
         }
+        titleView = title
+        val subtitle: TextView
 
-        val refreshBtn = pillButton(activity, "刷新书架", fg) { activity.refreshShelfFromUi() }
-        val settingsBtn = pillButton(activity, "设置", fg) { activity.showThemePanel() }
+        val refreshBtnLocal = pillButton(activity, "⟳  刷新书架") { activity.refreshShelfFromUi() }
+        val settingsBtnLocal = pillButton(activity, "⚙  设置") { activity.showThemePanel() }
+        refreshBtn = refreshBtnLocal
+        settingsBtn = settingsBtnLocal
+
+        val titleCol = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(title)
+        }
+        subtitle = TextView(activity).apply {
+            text = "书架"
+            textSize = 14f
+            setTextColor(secondary)
+            setPadding(0, dip(2), 0, 0)
+            letterSpacing = 0.08f
+        }
+        titleCol.addView(subtitle)
+        hintText = subtitle
 
         val topRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dip(24), dip(16), dip(24), 0)
-            addView(title)
+            setPadding(dip(40), dip(22), dip(40), dip(14))
+            addView(titleCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(refreshBtn)
-            addView(space(activity, dip(12)))
+            addView(space(activity, dip(14)))
             addView(settingsBtn)
-        }
-
-        hintText = TextView(activity).apply {
-            text = "加载中..."
-            textSize = 16f
-            setTextColor(Theme.secondaryColor(bg))
-            setPadding(dip(32), dip(4), dip(32), dip(8))
         }
 
         // 标题栏容器：不透明背景 + 提升层级，滚动时封面不会盖住标题与按钮
@@ -86,7 +100,13 @@ class ShelfView(
             setBackgroundColor(bg)
             elevation = dip(8).toFloat()
             addView(topRow)
-            addView(hintText)
+            // 细分隔线
+            addView(android.view.View(activity).apply {
+                setBackgroundColor(if (Theme.isDark(bg)) 0x1AFFFFFF else 0x14000000)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dip(1),
+                ).apply { marginStart = dip(40); marginEnd = dip(40) }
+            })
         }
 
         val recycler = RecyclerView(activity).apply {
@@ -116,29 +136,39 @@ class ShelfView(
         addView(column)
     }
 
-    /** 顶栏胶囊按钮：主题色描边 + 焦点高亮描边 */
-    private fun pillButton(activity: MainActivity, text: String, fg: Int, onClick: () -> Unit): TextView =
+    /** 顶栏胶囊按钮：半透明底 + 细边框；焦点时强调色填充 */
+    private fun pillButton(activity: MainActivity, text: String, onClick: () -> Unit): TextView =
         TextView(activity).apply {
             this.text = text
             textSize = 15f
-            setTextColor(fg)
-            setPadding(dip(20), dip(8), dip(20), dip(8))
+            setPadding(dip(22), dip(10), dip(22), dip(10))
             isFocusable = true
             isFocusableInTouchMode = true
-            background = GradientDrawable().apply {
-                cornerRadius = dip(20).toFloat()
-                setStroke(dip(2), fg)
-            }
+            applyPillStyle(this, focused = false)
             setOnClickListener { onClick() }
             setOnFocusChangeListener { v, hasFocus ->
-                background = GradientDrawable().apply {
-                    cornerRadius = dip(20).toFloat()
-                    setStroke(dip(3), if (hasFocus) 0xFFFFFFFF.toInt() else fg)
-                    setColor(if (hasFocus) 0x50888888.toInt() else 0x00000000)
-                }
-                setTextColor(if (hasFocus) 0xFFFFFFFF.toInt() else fg)
+                applyPillStyle(v as TextView, hasFocus)
+                v.animate().scaleX(if (hasFocus) 1.04f else 1f)
+                    .scaleY(if (hasFocus) 1.04f else 1f).setDuration(120).start()
             }
         }
+
+    private fun applyPillStyle(v: TextView, focused: Boolean) {
+        val bg = Theme.bgColor(activity)
+        val dark = Theme.isDark(bg)
+        val fg = Theme.fgColor(bg)
+        v.setTextColor(if (focused) 0xFFFFFFFF.toInt() else fg)
+        v.background = GradientDrawable().apply {
+            cornerRadius = dip(22).toFloat()
+            if (focused) {
+                setColor(if (dark) 0xFF4A90D9.toInt() else 0xFF2E6FC4.toInt())
+                setStroke(dip(1), 0x66FFFFFF)
+            } else {
+                setColor(if (dark) 0x14FFFFFF else 0x0D000000)
+                setStroke(dip(1), if (dark) 0x33FFFFFF else 0x22000000)
+            }
+        }
+    }
 
     private fun space(activity: MainActivity, size: Int): View =
         FrameLayout(activity).apply { layoutParams = LinearLayout.LayoutParams(size, 1) }
@@ -172,8 +202,11 @@ class ShelfView(
     /** 主题变化时刷新文字颜色（封面在 RecyclerView 内重绑时也会取新色） */
     fun refreshTheme() {
         val bg = Theme.bgColor(activity)
+        titleView.setTextColor(Theme.fgColor(bg))
         hintText.setTextColor(Theme.secondaryColor(bg))
         headerBox.setBackgroundColor(bg)
+        applyPillStyle(refreshBtn, refreshBtn.hasFocus())
+        applyPillStyle(settingsBtn, settingsBtn.hasFocus())
         adapter.notifyDataSetChanged()
     }
 
@@ -201,10 +234,18 @@ class ShelfView(
             scaleType = ImageView.ScaleType.FIT_CENTER
             // 占位透明：封面加载前不显示灰色底块
             setImageDrawable(null)
+            // 封面圆角
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: android.view.View, outline: android.graphics.Outline) {
+                    outline.setRoundRect(0, 0, v.width, v.height, dip(10).toFloat())
+                }
+            }
         }
         private val titleView = TextView(context).apply {
             textSize = 13f
             maxLines = 1
+            setPadding(0, dip(8), 0, 0)
         }
 
         init {
@@ -216,15 +257,17 @@ class ShelfView(
             // 焦点框：明亮描边 + 微放大，深浅背景都清晰
             foreground = GradientDrawable().apply {
                 setColor(0x00000000)
-                cornerRadius = dip(8).toFloat()
+                cornerRadius = dip(12).toFloat()
                 setStroke(0, 0)
             }
             setOnFocusChangeListener { v, hasFocus ->
                 v.animate().scaleX(if (hasFocus) 1.06f else 1f)
-                    .scaleY(if (hasFocus) 1.06f else 1f).setDuration(120).start()
+                    .scaleY(if (hasFocus) 1.06f else 1f)
+                    .translationZ(if (hasFocus) dip(10).toFloat() else 0f)
+                    .setDuration(140).start()
                 foreground = GradientDrawable().apply {
-                    setColor(if (hasFocus) 0x28888888 else 0x00000000)
-                    cornerRadius = dip(8).toFloat()
+                    setColor(if (hasFocus) 0x1AFFFFFF else 0x00000000)
+                    cornerRadius = dip(12).toFloat()
                     setStroke(dip(3), if (hasFocus) 0xFFFFFFFF.toInt() else 0)
                 }
             }

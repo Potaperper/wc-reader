@@ -668,7 +668,7 @@ function fixSrc(el, base){
         )
     }
 
-    /** 描边方框按钮：透明底 + 主题色描边，深浅背景都清晰 */
+    /** 胶囊按钮：透明底 + 焦点强调色填充，与书架/设置风格统一 */
     private fun barButton(text: String, fgColor: Int, tag: String? = null, onClick: () -> Unit): TextView =
         TextView(activity).apply {
             this.text = text
@@ -677,17 +677,25 @@ function fixSrc(el, base){
             isFocusableInTouchMode = true
             textSize = 16f
             setTextColor(fgColor)
-            setPadding(dip(22), dip(8), dip(22), dip(8))
+            setPadding(dip(22), dip(9), dip(22), dip(9))
             background = GradientDrawable().apply {
-                cornerRadius = dip(8).toFloat()
-                setStroke(dip(2), fgColor)
+                cornerRadius = dip(20).toFloat()
+                setColor(0x14FFFFFF)
+                setStroke(dip(1), 0x33FFFFFF)
             }
             setOnClickListener { onClick() }
             setOnFocusChangeListener { v, hasFocus ->
-                background = GradientDrawable().apply {
-                    cornerRadius = dip(8).toFloat()
-                    setStroke(dip(2), if (hasFocus) 0xFFFFFFFF.toInt() else fgColor)
-                    setColor(if (hasFocus) 0x40888888.toInt() else 0x00000000)
+                v.animate().scaleX(if (hasFocus) 1.05f else 1f)
+                    .scaleY(if (hasFocus) 1.05f else 1f).setDuration(110).start()
+                v.background = GradientDrawable().apply {
+                    cornerRadius = dip(20).toFloat()
+                    if (hasFocus) {
+                        setColor(0xFF4A90D9.toInt())
+                        setStroke(dip(1), 0x66FFFFFF)
+                    } else {
+                        setColor(0x14FFFFFF)
+                        setStroke(dip(1), 0x33FFFFFF)
+                    }
                 }
                 (v as TextView).setTextColor(if (hasFocus) 0xFFFFFFFF.toInt() else fgColor)
             }

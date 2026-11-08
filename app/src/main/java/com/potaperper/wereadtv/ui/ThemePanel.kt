@@ -1,6 +1,5 @@
 package com.potaperper.wereadtv.ui
 
-import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -16,8 +15,8 @@ import android.widget.TextView
 import com.potaperper.wereadtv.util.Theme
 
 /**
- * 设置面板：左侧栏（背景/排版/账号）+ 右侧内容区，浮层叠加不挤压底层。
- * 全遥控器操作：上下切换左栏项，OK 进入右侧，左右调值，返回退出。
+ * 设置面板：左侧导航 + 右侧卡片式内容，深色统一视觉，全遥控器操作。
+ * 背景：预设色块 + 2D 色盘；排版：字号/行距/边距/翻页；账号：刷新/退出。
  */
 class ThemePanel(
     private val activity: MainActivity,
@@ -30,6 +29,15 @@ class ThemePanel(
         private const val TAB_BG = 0
         private const val TAB_LAYOUT = 1
         private const val TAB_ACCOUNT = 2
+
+        // 统一强调色（与阅读器链接色一致）
+        private const val ACCENT = 0xFF4A90D9.toInt()
+        private const val PANEL_BG = 0xFF1B1B1F.toInt()
+        private const val NAV_BG = 0xFF151518.toInt()
+        private const val CARD_BG = 0xFF232329.toInt()
+        private const val CARD_BORDER = 0xFF2E2E36.toInt()
+        private const val TEXT_MAIN = 0xFFEAEAEE.toInt()
+        private const val TEXT_SUB = 0xFF9A9AA2.toInt()
     }
 
     private var tab = initialTab
@@ -49,70 +57,69 @@ class ThemePanel(
     private lateinit var dirMapLabel: TextView
     private lateinit var longPressLabel: TextView
 
-    /** 左栏导航焦点 */
-    private var navIndex = 0
-
-    /** 右侧内容是否持有焦点 */
     private var contentFocused = false
-
-    /** 内容区焦点序号（按页签不同含义不同） */
-    private var itemIndex = 0
-
-    private val navItems: List<TextView>
-        get() = listOf(navBg, navLayout, navAccount)
+    private val navItems: List<TextView> get() = listOf(navBg, navLayout, navAccount)
 
     init {
-        setBackgroundColor(0xD8000000.toInt())  // 半透明全屏遮罩，底层内容仍隐约可见
+        setBackgroundColor(0xD8000000.toInt())
         clipChildren = false
         clipToPadding = false
 
-        // ---- 左栏 ----
-        navBg = navItem("背景", TAB_BG)
-        navLayout = navItem("排版", TAB_LAYOUT)
-        navAccount = navItem("账号", TAB_ACCOUNT)
+        val navBgView = navItem("背景", TAB_BG)
+        val navLayoutView = navItem("排版", TAB_LAYOUT)
+        val navAccountView = navItem("账号", TAB_ACCOUNT)
+        navBg = navBgView
+        navLayout = navLayoutView
+        navAccount = navAccountView
 
         val navTitle = TextView(activity).apply {
             text = "设置"
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            setPadding(dip(24), dip(28), dip(24), dip(16))
+            textSize = 22f
+            setTextColor(TEXT_MAIN)
+            letterSpacing = 0.05f
+            setPadding(dip(28), dip(30), dip(28), dip(22))
         }
         val navCol = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             addView(navTitle)
-            addView(navBg)
-            addView(navLayout)
-            addView(navAccount)
+            addView(navBgView)
+            addView(navLayoutView)
+            addView(navAccountView)
         }
         val navPanel = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xF2151515.toInt())
+            setBackgroundColor(NAV_BG)
             addView(navCol)
-            addView(View(activity), LinearLayout.LayoutParams(1, 0, 1f))
         }
 
-        // ---- 右侧内容 ----
         contentBg = buildBgContent()
         contentLayout = buildLayoutContent()
         contentAccount = buildAccountContent()
 
         val contentPanel = FrameLayout(activity).apply {
-            setBackgroundColor(0xF5111111.toInt())
-            setPadding(dip(36), dip(24), dip(36), dip(24))
+            setPadding(dip(36), dip(26), dip(36), dip(26))
             addView(contentBg, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(contentLayout, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(contentAccount, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
 
-        val root = LinearLayout(activity).apply {
+        val card = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(navPanel, LinearLayout.LayoutParams(dip(240), ViewGroup.LayoutParams.MATCH_PARENT))
+            clipChildren = false
+            clipToPadding = false
+            elevation = dip(18).toFloat()
+            background = GradientDrawable().apply {
+                setColor(PANEL_BG)
+                cornerRadius = dip(18).toFloat()
+                setStroke(dip(1), 0x22FFFFFF)
+            }
+            addView(navPanel, LinearLayout.LayoutParams(dip(250), ViewGroup.LayoutParams.MATCH_PARENT))
             addView(contentPanel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
 
-        addView(root, LayoutParams(
-            (resources.displayMetrics.widthPixels * 0.86f).toInt(),
-            (resources.displayMetrics.heightPixels * 0.86f).toInt(),
+        addView(card, LayoutParams(
+            (resources.displayMetrics.widthPixels * 0.88f).toInt(),
+            (resources.displayMetrics.heightPixels * 0.84f).toInt(),
             Gravity.CENTER,
         ))
 
@@ -122,12 +129,17 @@ class ThemePanel(
         }
     }
 
+    // ---------- 左栏 ----------
+
     private fun navItem(text: String, index: Int): TextView = TextView(activity).apply {
         this.text = text
         textSize = 18f
-        setPadding(dip(24), dip(16), dip(24), dip(16))
+        setPadding(dip(28), dip(16), dip(28), dip(16))
         isFocusable = true
         isFocusableInTouchMode = true
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { marginStart = dip(16); marginEnd = dip(16); bottomMargin = dip(6) }
         setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus) { showTab(index); contentFocused = false }
             refreshNavStyles()
@@ -135,7 +147,6 @@ class ThemePanel(
         setOnClickListener { requestFocus() }
     }
 
-    /** 当前页签常驻绿框；聚焦时再叠加高亮与箭头 */
     private fun refreshNavStyles() {
         val items = listOf(navBg to TAB_BG, navLayout to TAB_LAYOUT, navAccount to TAB_ACCOUNT)
         for ((v, idx) in items) {
@@ -146,18 +157,26 @@ class ThemePanel(
                 TAB_LAYOUT -> "排版"
                 else -> "账号"
             }
-            v.text = if (focused) "▶ $name" else name
+            v.text = name
             v.setTextColor(
                 when {
                     focused -> 0xFFFFFFFF.toInt()
-                    active -> 0xFF7ED694.toInt()
-                    else -> 0xFFAAAAAA.toInt()
+                    active -> ACCENT
+                    else -> TEXT_SUB
                 },
             )
             v.background = GradientDrawable().apply {
-                cornerRadius = dip(8).toFloat()
-                setColor(if (focused) 0x404CAF50.toInt() else 0x00000000)
-                setStroke(if (active || focused) dip(2) else 0, if (focused) 0xFFFFFFFF.toInt() else 0xFF4CAF50.toInt())
+                cornerRadius = dip(12).toFloat()
+                when {
+                    focused -> {
+                        setColor(0x334A90D9)
+                        setStroke(dip(1), ACCENT)
+                    }
+                    active -> {
+                        setColor(0x1A4A90D9)
+                    }
+                    else -> setColor(0x00000000)
+                }
             }
         }
     }
@@ -167,53 +186,53 @@ class ThemePanel(
         contentBg.visibility = if (index == TAB_BG) VISIBLE else GONE
         contentLayout.visibility = if (index == TAB_LAYOUT) VISIBLE else GONE
         contentAccount.visibility = if (index == TAB_ACCOUNT) VISIBLE else GONE
-        itemIndex = 0
         refreshNavStyles()
     }
 
     // ---------- 背景内容 ----------
 
     private fun buildBgContent(): ViewGroup {
-        val title = sectionTitle("背景颜色")
         val swatchRow = LinearLayout(activity).apply {
             tag = "swatchRow"
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            // 左右留出放大余量，避免首个/末个色块聚焦放大时被裁切
-            setPadding(dip(28), dip(10), dip(28), dip(6))
+            gravity = Gravity.START
+            setPadding(0, dip(10), 0, dip(6))
             clipChildren = false
             clipToPadding = false
             var i = 0
             for ((name, color) in Theme.PRESETS) {
-                val idx = i
                 val cell = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER_HORIZONTAL
                     clipChildren = false
                     clipToPadding = false
-                    layoutParams = LinearLayout.LayoutParams(dip(88), ViewGroup.LayoutParams.WRAP_CONTENT)
-                        .apply { marginEnd = dip(2) }
+                    layoutParams = LinearLayout.LayoutParams(dip(82), ViewGroup.LayoutParams.WRAP_CONTENT)
                     addView(FrameLayout(activity).apply {
                         tag = "swatch_focusable"
                         background = GradientDrawable().apply {
                             setColor(color)
-                            cornerRadius = dip(12).toFloat()
-                            setStroke(dip(1), 0x66FFFFFF)
+                            cornerRadius = dip(14).toFloat()
+                            setStroke(dip(2), swatchBorderColor(color))
                         }
-                        layoutParams = LinearLayout.LayoutParams(dip(64), dip(64))
+                        layoutParams = LinearLayout.LayoutParams(dip(56), dip(56))
                         isFocusable = true
                         isFocusableInTouchMode = true
                         setOnFocusChangeListener { v, hasFocus ->
-                            v.animate().scaleX(if (hasFocus) 1.10f else 1f)
-                                .scaleY(if (hasFocus) 1.10f else 1f).setDuration(100).start()
+                            v.animate().scaleX(if (hasFocus) 1.12f else 1f)
+                                .scaleY(if (hasFocus) 1.12f else 1f).setDuration(110).start()
+                            (v.background as? GradientDrawable)?.setStroke(
+                                dip(if (hasFocus) 3 else 2),
+                                if (hasFocus) 0xFFFFFFFF.toInt() else swatchBorderColor(color),
+                            )
                         }
                         setOnClickListener { applyColor(color) }
                     })
                     addView(TextView(activity).apply {
                         text = name
                         textSize = 12f
-                        setTextColor(0xFFAAAAAA.toInt())
+                        setTextColor(TEXT_SUB)
                         gravity = Gravity.CENTER
+                        setPadding(0, dip(4), 0, 0)
                     })
                 }
                 addView(cell)
@@ -221,29 +240,32 @@ class ThemePanel(
             }
         }
 
-        val customTitle = sectionTitle("自定义颜色（2D 色盘：上下左右调色，OK 应用）")
         val palette = Palette2DView(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(dip(560), dip(300))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dip(220),
+            ).apply { topMargin = dip(8) }
             onColorPicked = { applyColor(it) }
-            isFocusable = true
-            isFocusableInTouchMode = true
         }
 
+        val col = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false
+            clipToPadding = false
+            addView(sectionTitle("背景颜色"))
+            addView(swatchRow)
+            addView(space(dip(18)))
+            addView(sectionTitle("自定义颜色（色盘：上下左右调色）"))
+            addView(palette)
+        }
         return ScrollView(activity).apply {
             clipChildren = false
             clipToPadding = false
-            addView(LinearLayout(activity).apply {
-                orientation = LinearLayout.VERTICAL
-                clipChildren = false
-                clipToPadding = false
-                addView(title)
-                addView(swatchRow)
-                addView(space(dip(18)))
-                addView(customTitle)
-                addView(palette)
-            })
+            addView(col)
         }
     }
+
+    private fun swatchBorderColor(color: Int): Int =
+        if (Theme.isDark(color)) 0x33FFFFFF else 0x22000000
 
     // ---------- 排版内容 ----------
 
@@ -259,38 +281,39 @@ class ThemePanel(
 
         val col = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            addView(sectionTitle("排版调整（聚焦后左右键调整）"))
-            addView(space(dip(10)))
+            addView(sectionTitle("阅读排版"))
             addView(fontSizeLabel)
             addView(lineHeightLabel)
             addView(marginLabel)
             addView(marginYLabel)
+            addView(space(dip(14)))
+            addView(sectionTitle("翻页"))
             addView(pageModeLabel)
             addView(dirMapLabel)
             addView(longPressLabel)
-            addView(space(dip(12)))
+            addView(space(dip(10)))
             addView(TextView(activity).apply {
-                text = "上下键切换选项；更改立即生效"
-                textSize = 13f
-                setTextColor(0xFF999999.toInt())
+                text = "聚焦后用左右键调整，更改立即生效"
+                textSize = 12f
+                setTextColor(TEXT_SUB)
+                setPadding(dip(4), dip(4), 0, 0)
             })
         }
         return ScrollView(activity).apply { addView(col) }
     }
 
-    private fun sectionTitle(text: String): TextView = TextView(activity).apply {
-        this.text = text
-        textSize = 16f
-        setTextColor(0xFF888888.toInt())
-        setPadding(0, 0, 0, dip(12))
-    }
-
     private fun prefRow(name: String): TextView = TextView(activity).apply {
-        textSize = 19f
-        setPadding(dip(20), dip(18), dip(20), dip(18))
+        textSize = 17f
+        setPadding(dip(22), dip(17), dip(22), dip(17))
         isFocusable = true
         isFocusableInTouchMode = true
-        setOnFocusChangeListener { v, hasFocus -> stylePrefRow(v as TextView, name, hasFocus) }
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { bottomMargin = dip(10) }
+        setOnFocusChangeListener { v, hasFocus ->
+            stylePrefRow(v as TextView, name, hasFocus)
+        }
+        stylePrefRow(this, name, false)
     }
 
     private fun stylePrefRow(v: TextView, name: String, focused: Boolean) {
@@ -301,14 +324,14 @@ class ThemePanel(
             "上下边距" -> "${Theme.marginYPx(activity)} px"
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
-            else -> if (Theme.verticalPaging(activity)) "上下键翻页" else "左右键翻页"
+            else -> if (Theme.verticalPaging(activity)) "上下键" else "左右键"
         }
         v.text = "$name　　　$value"
-        v.setTextColor(if (focused) 0xFFFFFFFF.toInt() else 0xFFCCCCCC.toInt())
+        v.setTextColor(if (focused) 0xFFFFFFFF.toInt() else TEXT_MAIN)
         v.background = GradientDrawable().apply {
-            cornerRadius = dip(10).toFloat()
-            setColor(if (focused) 0x304CAF50.toInt() else 0x00000000)
-            setStroke(if (focused) dip(2) else 0, if (focused) 0xFF4CAF50.toInt() else 0)
+            cornerRadius = dip(12).toFloat()
+            setColor(if (focused) 0x2E4A90D9 else CARD_BG)
+            setStroke(dip(1), if (focused) ACCENT else CARD_BORDER)
         }
     }
 
@@ -327,51 +350,61 @@ class ThemePanel(
     private fun buildAccountContent(): ViewGroup {
         val vid = activity.accountVid()
         val info = TextView(activity).apply {
-            text = "当前账号\n\nUID：${if (vid.isNotEmpty()) vid else "未登录"}"
-            textSize = 18f
-            setTextColor(0xFFDDDDDD.toInt())
-            setPadding(dip(4), 0, 0, dip(20))
+            text = if (vid.isNotEmpty()) "当前账号  UID $vid" else "未登录"
+            textSize = 15f
+            setTextColor(TEXT_SUB)
+            setPadding(dip(6), 0, 0, dip(22))
         }
         val refreshBtn = actionButton("刷新书架") { activity.refreshShelf(); onDismiss() }
         val logoutBtn = actionButton("退出登录") { activity.logout() }
 
-        return ScrollView(activity).apply {
-            addView(LinearLayout(activity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(sectionTitle("账号管理"))
-                addView(info)
-                addView(refreshBtn)
-                addView(space(dip(10)))
-                addView(logoutBtn)
-            })
+        val col = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(sectionTitle("账号管理"))
+            addView(info)
+            addView(refreshBtn)
+            addView(logoutBtn)
         }
+        return ScrollView(activity).apply { addView(col) }
     }
 
     private fun actionButton(text: String, onClick: () -> Unit): TextView = TextView(activity).apply {
         this.text = text
         textSize = 17f
-        setTextColor(0xFFEEEEEE.toInt())
-        setPadding(dip(24), dip(14), dip(24), dip(14))
+        setTextColor(TEXT_MAIN)
+        setPadding(dip(26), dip(16), dip(26), dip(16))
         gravity = Gravity.CENTER
         isFocusable = true
         isFocusableInTouchMode = true
-        background = GradientDrawable().apply {
-            cornerRadius = dip(10f).toFloat()
-            setStroke(dip(2), 0xFF666666.toInt())
-        }
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { bottomMargin = dip(10) }
         setOnClickListener { onClick() }
         setOnFocusChangeListener { v, hasFocus ->
-            background = GradientDrawable().apply {
-                cornerRadius = dip(10f).toFloat()
-                setStroke(dip(3), if (hasFocus) 0xFFFFFFFF.toInt() else 0xFF666666.toInt())
-                setColor(if (hasFocus) 0x50888888.toInt() else 0x00000000)
+            (v as TextView).setTextColor(if (hasFocus) 0xFFFFFFFF.toInt() else TEXT_MAIN)
+            v.background = GradientDrawable().apply {
+                cornerRadius = dip(12).toFloat()
+                setColor(if (hasFocus) 0x2E4A90D9 else CARD_BG)
+                setStroke(dip(1), if (hasFocus) ACCENT else CARD_BORDER)
             }
         }
+        background = GradientDrawable().apply {
+            cornerRadius = dip(12).toFloat()
+            setColor(CARD_BG)
+            setStroke(dip(1), CARD_BORDER)
+        }
+    }
+
+    private fun sectionTitle(text: String): TextView = TextView(activity).apply {
+        this.text = text
+        textSize = 13f
+        setTextColor(TEXT_SUB)
+        letterSpacing = 0.06f
+        setPadding(dip(4), 0, 0, dip(12))
     }
 
     // ---------- 焦点/按键 ----------
 
-    /** 内容区可聚焦元素（按页签） */
     private val contentFocusables: List<View>
         get() = when (tab) {
             TAB_BG -> {
@@ -381,7 +414,10 @@ class ThemePanel(
                 if (palette != null) out.add(palette)
                 out
             }
-            TAB_LAYOUT -> listOf(fontSizeLabel, lineHeightLabel, marginLabel, marginYLabel, pageModeLabel, dirMapLabel, longPressLabel)
+            TAB_LAYOUT -> listOf(
+                fontSizeLabel, lineHeightLabel, marginLabel, marginYLabel,
+                pageModeLabel, dirMapLabel, longPressLabel,
+            )
             else -> contentAccount.findAllFocusableViews()
         }
 
@@ -397,7 +433,6 @@ class ThemePanel(
 
     private fun ViewGroup.findViewsWithTag(out: MutableList<View>, tag: String) {
         if (this.tag == tag) { out.add(this); return }
-        // 收集带 tag 的可聚焦子项（swatch 的外层 cell 标了 tag）
         for (i in 0 until childCount) {
             val c = getChildAt(i)
             if (c.tag == tag && c.isFocusable) { out.add(c); continue }
@@ -424,7 +459,6 @@ class ThemePanel(
                 if (tab == TAB_BG) {
                     val palette = paletteView()
                     if (palette?.hasFocus() == true) {
-                        // 色盘顶部再按上：回到预设色块行
                         if (!palette.nudge(0, -1)) { firstSwatch()?.requestFocus(); return true }
                         return true
                     }
@@ -432,8 +466,6 @@ class ThemePanel(
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (tab == TAB_BG) {
-                    // 只有焦点已在右侧内容区（色块/色盘）时才处理，
-                    // 焦点在左栏时交给默认导航（可下移到“排版”）
                     val navFocused = navItems.any { it.hasFocus() }
                     if (!navFocused) {
                         val palette = paletteView()
@@ -447,7 +479,6 @@ class ThemePanel(
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 val focused = navItems.firstOrNull { it.hasFocus() }
                 if (focused != null && !contentFocused) {
-                    // OK 进入内容区：把焦点交给内容第一项
                     contentFocused = true
                     val list = contentFocusables
                     if (list.isNotEmpty()) { list[0].requestFocus(); return true }
@@ -524,47 +555,48 @@ class ThemePanel(
 
     /**
      * 2D 色盘：横轴色相（24 段）、纵轴明暗（8 段），格子与选中框严格对应。
-     * 左右调色相，上下调明暗；上下到达边界时返回 false 让焦点离开。
      */
-    class Palette2DView(ctx: Context) : View(ctx) {
+    class Palette2DView(ctx: android.content.Context) : View(ctx) {
         var onColorPicked: ((Int) -> Unit)? = null
-        private var col = 14      // 0..SEG-1（默认蓝色附近）
-        private var row = 2       // 0..ROWS-1（0 = 最亮）
+        private var col = 14
+        private var row = 2
         private val paint = Paint()
 
         companion object {
             private const val SEG = 24
             private const val ROWS = 8
-            private const val BAR_RATIO = 0.28f
-            private const val BAR_GAP_DP = 14
         }
 
         init {
             tag = "palette"
             isFocusable = true
             isFocusableInTouchMode = true
-            setOnFocusChangeListener { _, hasFocus -> invalidate() }
+            background = GradientDrawable().apply {
+                setColor(0xFF232329.toInt())
+                cornerRadius = (10 * resources.displayMetrics.density).toInt().toFloat()
+                setStroke((1 * resources.displayMetrics.density).toInt(), 0xFF2E2E36.toInt())
+            }
+            setOnFocusChangeListener { _, _ -> invalidate() }
         }
 
-        private fun barH(h: Float) = h * BAR_RATIO
-        private fun gridTop(h: Float) = barH(h) + dip(BAR_GAP_DP)
-        private fun gridH(h: Float) = h - gridTop(h)
         private fun colHue(c: Int) = c * 360f / SEG
-        /** 第 r 行的明暗系数：0 行最亮 → 7 行最暗 */
         private fun rowT(r: Int) = 1f - r.toFloat() / (ROWS - 1)
 
         override fun onDraw(canvas: Canvas) {
-            val w = width.toFloat()
-            val h = height.toFloat()
-            val bh = barH(h)
+            val pad = dip(12)
+            val w = width.toFloat() - 2 * pad
+            val h = height.toFloat() - 2 * pad
+            val bh = h * 0.22f
+            canvas.save()
+            canvas.translate(pad.toFloat(), pad.toFloat())
             // 色相条
             for (i in 0 until SEG) {
                 paint.color = Color.HSVToColor(floatArrayOf(colHue(i), 0.65f, 0.9f))
                 canvas.drawRect(w * i / SEG, 0f, w * (i + 1) / SEG, bh, paint)
             }
-            // 明暗网格：列与色相条同宽，行高一致
-            val gt = gridTop(h)
-            val gh = gridH(h)
+            // 明暗网格
+            val gt = bh + dip(12)
+            val gh = h - gt
             for (r in 0 until ROWS) {
                 val t = rowT(r)
                 for (c in 0 until SEG) {
@@ -575,7 +607,7 @@ class ThemePanel(
                     )
                 }
             }
-            // 选中指示：色相条竖线 + 网格格子的完整描边
+            // 选中指示
             paint.color = Color.WHITE
             paint.style = Paint.Style.FILL
             val cx = w * (col + 0.5f) / SEG
@@ -585,9 +617,10 @@ class ThemePanel(
             val cellW = w / SEG
             val cellH = gh / ROWS
             val l = w * col / SEG
-            val t = gt + gh * row / ROWS
-            canvas.drawRect(l + dip(2), t + dip(2), l + cellW - dip(2), t + cellH - dip(2), paint)
+            val t2 = gt + gh * row / ROWS
+            canvas.drawRect(l + dip(2), t2 + dip(2), l + cellW - dip(2), t2 + cellH - dip(2), paint)
             paint.style = Paint.Style.FILL
+            canvas.restore()
         }
 
         fun currentColor(): Int {
@@ -595,13 +628,8 @@ class ThemePanel(
             return Color.HSVToColor(floatArrayOf(colHue(col), 0.65f * t + 0.05f, 0.9f * t + 0.08f))
         }
 
-        /**
-         * @return true 表示已消费按键；上下到达边界时返回 false（用于让焦点离开色盘）
-         */
         fun nudge(dx: Int, dy: Int): Boolean {
-            if (dx != 0) {
-                col = ((col + dx) % SEG + SEG) % SEG
-            }
+            if (dx != 0) col = ((col + dx) % SEG + SEG) % SEG
             if (dy != 0) {
                 val nr = row + dy
                 if (nr !in 0 until ROWS) return false
