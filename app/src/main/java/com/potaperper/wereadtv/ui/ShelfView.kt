@@ -57,7 +57,7 @@ class ShelfView(
 
         // ---- 顶栏：两行标题 + 图标按钮 ----
         val title = TextView(activity).apply {
-            text = "微信读书"
+            text = "WC-reader"
             textSize = 30f
             setTextColor(fg)
             letterSpacing = 0.04f
@@ -94,19 +94,11 @@ class ShelfView(
             addView(settingsBtn)
         }
 
-        // 标题栏容器：不透明背景 + 提升层级，滚动时封面不会盖住标题与按钮
+        // 标题栏容器：与页面同底色、无分隔线/阴影，滚动时由容器裁切保证不覆盖标题
         headerBox = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
-            elevation = dip(8).toFloat()
             addView(topRow)
-            // 细分隔线
-            addView(android.view.View(activity).apply {
-                setBackgroundColor(if (Theme.isDark(bg)) 0x1AFFFFFF else 0x14000000)
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dip(1),
-                ).apply { marginStart = dip(40); marginEnd = dip(40) }
-            })
         }
 
         val recycler = RecyclerView(activity).apply {
@@ -121,8 +113,8 @@ class ShelfView(
 
         val column = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            clipChildren = false
-            clipToPadding = false
+            // 内容裁切在容器内：滚动时书籍不会绘到标题栏上
+            clipChildren = true
             addView(headerBox)
             addView(
                 recycler,
@@ -131,8 +123,6 @@ class ShelfView(
                 ),
             )
         }
-        clipChildren = false
-        clipToPadding = false
         addView(column)
     }
 

@@ -29,6 +29,7 @@ class ThemePanel(
         private const val TAB_BG = 0
         private const val TAB_LAYOUT = 1
         private const val TAB_ACCOUNT = 2
+        private const val TAB_ABOUT = 3
 
         // 统一强调色（与阅读器链接色一致）
         private const val ACCENT = 0xFF4A90D9.toInt()
@@ -44,9 +45,11 @@ class ThemePanel(
     private lateinit var navBg: TextView
     private lateinit var navLayout: TextView
     private lateinit var navAccount: TextView
+    private lateinit var navAbout: TextView
     private lateinit var contentBg: ViewGroup
     private lateinit var contentLayout: ViewGroup
     private lateinit var contentAccount: ViewGroup
+    private lateinit var contentAbout: ViewGroup
 
     // ---- 排版控件 ----
     private lateinit var fontSizeLabel: TextView
@@ -58,7 +61,6 @@ class ThemePanel(
     private lateinit var longPressLabel: TextView
 
     private var contentFocused = false
-    private val navItems: List<TextView> get() = listOf(navBg, navLayout, navAccount)
 
     init {
         setBackgroundColor(0xD8000000.toInt())
@@ -68,9 +70,11 @@ class ThemePanel(
         val navBgView = navItem("背景", TAB_BG)
         val navLayoutView = navItem("排版", TAB_LAYOUT)
         val navAccountView = navItem("账号", TAB_ACCOUNT)
+        val navAboutView = navItem("关于", TAB_ABOUT)
         navBg = navBgView
         navLayout = navLayoutView
         navAccount = navAccountView
+        navAbout = navAboutView
 
         val navTitle = TextView(activity).apply {
             text = "设置"
@@ -85,6 +89,7 @@ class ThemePanel(
             addView(navBgView)
             addView(navLayoutView)
             addView(navAccountView)
+            addView(navAboutView)
         }
         val navPanel = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -95,12 +100,14 @@ class ThemePanel(
         contentBg = buildBgContent()
         contentLayout = buildLayoutContent()
         contentAccount = buildAccountContent()
+        contentAbout = buildAboutContent()
 
         val contentPanel = FrameLayout(activity).apply {
             setPadding(dip(36), dip(26), dip(36), dip(26))
             addView(contentBg, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(contentLayout, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(contentAccount, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(contentAbout, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
 
         val card = LinearLayout(activity).apply {
@@ -148,14 +155,20 @@ class ThemePanel(
     }
 
     private fun refreshNavStyles() {
-        val items = listOf(navBg to TAB_BG, navLayout to TAB_LAYOUT, navAccount to TAB_ACCOUNT)
+        val items = listOf(
+            navBg to TAB_BG,
+            navLayout to TAB_LAYOUT,
+            navAccount to TAB_ACCOUNT,
+            navAbout to TAB_ABOUT,
+        )
         for ((v, idx) in items) {
             val focused = v.hasFocus()
             val active = tab == idx
             val name = when (idx) {
                 TAB_BG -> "背景"
                 TAB_LAYOUT -> "排版"
-                else -> "账号"
+                TAB_ACCOUNT -> "账号"
+                else -> "关于"
             }
             v.text = name
             v.setTextColor(
@@ -186,8 +199,11 @@ class ThemePanel(
         contentBg.visibility = if (index == TAB_BG) VISIBLE else GONE
         contentLayout.visibility = if (index == TAB_LAYOUT) VISIBLE else GONE
         contentAccount.visibility = if (index == TAB_ACCOUNT) VISIBLE else GONE
+        contentAbout.visibility = if (index == TAB_ABOUT) VISIBLE else GONE
         refreshNavStyles()
     }
+
+    private val navItems: List<TextView> get() = listOf(navBg, navLayout, navAccount, navAbout)
 
     // ---------- 背景内容 ----------
 
@@ -403,6 +419,41 @@ class ThemePanel(
         setPadding(dip(4), 0, 0, dip(12))
     }
 
+    // ---------- 关于内容 ----------
+
+    private fun buildAboutContent(): ViewGroup {
+        val version = activity.currentVersion()
+        val col = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(sectionTitle("关于"))
+            addView(infoLine("WC-reader　v$version", 20f, TEXT_MAIN))
+            addView(infoLine("作者：Potaperper", 15f, TEXT_SUB))
+            addView(infoLine("项目：github.com/Potaperper/wc-reader", 15f, TEXT_SUB))
+            addView(space(dip(10)))
+            addView(TextView(activity).apply {
+                text = "一个为 Android TV / 机顶盒 / 投影仪设计的第三方阅读客户端。" +
+                    "支持微信读书账号登录、书架、整页分页阅读、进度云同步、注释浏览，" +
+                    "并针对遥控器与大屏阅读做了专门优化。\n\n本项目非官方应用，仅供个人学习与技术研究使用。"
+                textSize = 14f
+                setTextColor(TEXT_SUB)
+                setLineSpacing(dip(4).toFloat(), 1.2f)
+                setPadding(dip(4), 0, dip(4), dip(20))
+            })
+            addView(actionButton("检查更新") {
+                activity.checkForUpdate { msg -> activity.showToast(msg) }
+            })
+        }
+        return ScrollView(activity).apply { addView(col) }
+    }
+
+    private fun infoLine(text: String, size: Float, color: Int): TextView =
+        TextView(activity).apply {
+            this.text = text
+            textSize = size
+            setTextColor(color)
+            setPadding(dip(4), dip(4), dip(4), dip(4))
+        }
+
     // ---------- 焦点/按键 ----------
 
     private val contentFocusables: List<View>
@@ -418,7 +469,8 @@ class ThemePanel(
                 fontSizeLabel, lineHeightLabel, marginLabel, marginYLabel,
                 pageModeLabel, dirMapLabel, longPressLabel,
             )
-            else -> contentAccount.findAllFocusableViews()
+            TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
+            else -> contentAbout.findAllFocusableViews()
         }
 
     private fun ViewGroup.findAllFocusableViews(): List<View> {

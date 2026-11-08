@@ -55,7 +55,7 @@ class QrLoginView(
         setBackgroundColor(0xFF1A1A1A.toInt())
 
         val title = TextView(activity).apply {
-            text = "微信读书登录"
+            text = "账号登录"
             textSize = 28f
             setTextColor(Color.WHITE)
         }

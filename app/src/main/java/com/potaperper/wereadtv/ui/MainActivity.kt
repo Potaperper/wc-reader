@@ -383,6 +383,42 @@ class MainActivity : Activity() {
 
     // ---------- 账号 ----------
 
+    /** 当前应用版本名 */
+    fun currentVersion(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+    } catch (e: Exception) {
+        "?"
+    }
+
+    /** 检查 GitHub Releases 是否有新版本（仅检查，不自动下载安装） */
+    fun checkForUpdate(onResult: (String) -> Unit) {
+        scope.launch {
+            val msg = withContext(Dispatchers.IO) {
+                try {
+                    val conn = java.net.URL(
+                        "https://api.github.com/repos/Potaperper/wc-reader/releases/latest",
+                    ).openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 8000
+                    conn.readTimeout = 10000
+                    conn.setRequestProperty("User-Agent", "WC-reader")
+                    conn.setRequestProperty("Accept", "application/vnd.github+json")
+                    val text = conn.inputStream.bufferedReader().use { it.readText() }
+                    val tag = Regex("\"tag_name\"\\s*:\\s*\"([^\"]+)\"")
+                        .find(text)?.groupValues?.get(1) ?: ""
+                    val cur = currentVersion()
+                    when {
+                        tag.isEmpty() -> "检查更新失败（无法获取版本信息）"
+                        tag.trimStart('v') == cur -> "已是最新版本 v$cur"
+                        else -> "发现新版本 $tag（当前 v$cur）\n可在项目主页下载"
+                    }
+                } catch (e: Exception) {
+                    "检查更新失败：${e.message}"
+                }
+            }
+            onResult(msg)
+        }
+    }
+
     /** 当前登录账号的 vid（从 cookie 提取），供账号面板显示 */
     fun accountVid(): String {
         val m = Regex("wr_vid=(\\d+)").find(api.cookie)
