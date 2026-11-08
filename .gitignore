@@ -21,3 +21,8 @@ reference/
 
 # Kotlin
 .kotlin/
+
+/bug_*.png
+/verify_*.png
+/shelf_now.png
+
