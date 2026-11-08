@@ -54,6 +54,8 @@ html,body{margin:0;padding:0;background:${Theme.toHex(bg)};height:100%;overflow:
 #pager a{color:#4a90d9;text-decoration:none;}
 /* 脚注标记：纯上标彩色数字（无方框），注释内容通过长按 OK / 顶栏“注释”查看 */
 #pager sup.wr-note{font-size:0.68em;line-height:1;color:#3a7bd5;vertical-align:super;margin:0 1px;font-weight:normal;}
+/* 章尾注释块：默认隐藏，统一从注释面板查看 */
+#pager p.ft,#pager div.ft{display:none!important;}
 </style>
 <script>
 window.__page = 0;
@@ -97,6 +99,8 @@ function goTo(p, instant){
   var smooth = (instant === true) ? false : !window.__instant;
   pager.style.transition = smooth ? 'transform .22s ease-out' : 'none';
   pager.style.transform = 'translateX(' + offset + 'px)';
+  // 保险：任何情况下都不允许文档横向滚动（否则 fixed 视口会整体偏移）
+  if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
   updateHud();
 }
 window.tryNext = function(){ relayout(); if (window.__page >= window.__totalPages - 1) return false; goTo(window.__page + 1); return true; };
@@ -144,7 +148,7 @@ function renderCurrent(){
     try { AndroidBridge.onRendered(window.__totalPages); } catch(e){}
   });});
 }
-/** 提取脚注：把 <img class="qqreader-footnote" alt="注释全文"> 替换为上标数字标记 */
+/** 提取脚注：① img.qqreader-footnote（行内图片注释）② a.fr + p.ft（章尾锚点注释） */
 function extractNotes(root){
   var imgs = root.querySelectorAll('img');
   var n = 0;
@@ -161,29 +165,61 @@ function extractNotes(root){
       sup.textContent = '' + n;
       im.parentNode.replaceChild(sup, im);
     } else {
-      // 普通图片：加载失败隐藏，避免出现白底块
       im.addEventListener('error', function(){ this.style.display = 'none'; });
       if (im.complete && im.naturalWidth === 0) im.style.display = 'none';
     }
   }
-  // 兜底：1.5 秒后仍未加载成功的图片一律隐藏
+  // 章尾注释块：隐藏，正文内锚点换成上标数字
+  var fts = root.querySelectorAll('p.ft, div.ft');
+  for (var f = 0; f < fts.length; f++) {
+    var ft = fts[f];
+    var a = ft.querySelector('a');
+    var num = a ? (a.textContent || '').replace(/[^0-9]/g, '') : '';
+    ft.style.display = 'none';
+    if (!num) num = '' + (f + 1);
+    ft.setAttribute('data-wr-note', num);
+  }
+  var frs = root.querySelectorAll('a.fr');
+  for (var j = 0; j < frs.length; j++) {
+    var fr = frs[j];
+    var t = (fr.textContent || '').replace(/[^0-9]/g, '') || (j + 1);
+    var s2 = document.createElement('sup');
+    s2.className = 'wr-note';
+    s2.textContent = '' + t;
+    fr.parentNode.replaceChild(s2, fr);
+  }
+  // 兜底：1.5 秒后仍未加载成功的图片一律隐藏；
+  // 若整章既无文字也无可用图片，显示提示而不是留白屏
   setTimeout(function(){
     var rest = root.querySelectorAll('img');
+    var hasVisibleImg = false;
     for (var k = 0; k < rest.length; k++) {
       var r = rest[k];
-      if (!r.complete || r.naturalWidth === 0) r.style.display = 'none';
+      if (!r.complete || r.naturalWidth === 0) { r.style.display = 'none'; }
+      else if (r.style.display !== 'none') { hasVisibleImg = true; }
+    }
+    if (!hasVisibleImg && (root.textContent || '').trim().length === 0) {
+      root.innerHTML = '<p style="text-align:center;opacity:.6;margin-top:38vh;">本章为图片内容，加载失败</p>';
     }
     goTo(window.__page, true);
   }, 1500);
 }
 function applyShellOverride(){
   var bg = window.__themeBg || '#161616';
-  document.documentElement.style.setProperty('background', bg, 'important');
-  document.body.style.setProperty('background', bg, 'important');
-  document.body.style.setProperty('overflow', 'hidden', 'important');
-  document.body.style.setProperty('margin', '0', 'important');
-  document.body.style.setProperty('padding', '0', 'important');
-  document.body.style.setProperty('height', '100%', 'important');
+  var de = document.documentElement;
+  de.style.setProperty('background', bg, 'important');
+  de.style.setProperty('overflow', 'hidden', 'important');
+  de.style.setProperty('width', '100%', 'important');
+  de.style.setProperty('height', '100%', 'important');
+  var b = document.body;
+  b.style.setProperty('background', bg, 'important');
+  b.style.setProperty('overflow', 'hidden', 'important');
+  b.style.setProperty('margin', '0', 'important');
+  b.style.setProperty('padding', '0', 'important');
+  b.style.setProperty('width', '100%', 'important');
+  b.style.setProperty('height', '100%', 'important');
+  // 锁定滚动：任何横向溢出都不允许滚动页面（否则 fixed 定位的视口会整体偏移）
+  window.scrollTo(0, 0);
 }
 function resolveAssets(root){
   var base = 'https://res.weread.qq.com/wrepub/';
@@ -253,9 +289,16 @@ function fixSrc(el, base){
         list[next].requestFocus()
     }
 
+    /** 顶栏按钮点击后，吞掉这一次按键的 UP，避免漏进阅读页逻辑触发长按 */
+    private var swallowNextUp = false
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val action = event.action
         if (action != KeyEvent.ACTION_DOWN && action != KeyEvent.ACTION_UP) return true
+        if (swallowNextUp && action == KeyEvent.ACTION_UP) {
+            swallowNextUp = false
+            return true
+        }
 
         if (notesOverlay.visibility == VISIBLE) {
             if (action == KeyEvent.ACTION_DOWN) {
@@ -282,20 +325,21 @@ function fixSrc(el, base){
             return super.dispatchKeyEvent(event)
         }
         if (topBar.visibility == VISIBLE) {
-            if (action == KeyEvent.ACTION_DOWN) {
-                when (event.keyCode) {
-                    KeyEvent.KEYCODE_BACK -> { exitReader(); return true }
-                    // 顶栏内自行循环移动焦点，避免焦点逃逸到 WebView 导致按键失控
-                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> {
-                        moveTopBarFocus(-1); return true
-                    }
-                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        moveTopBarFocus(+1); return true
-                    }
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                        val f = topBar.findFocus()
-                        if (f is TextView) { f.performClick(); return true }
-                    }
+            if (action == KeyEvent.ACTION_UP) return true
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_BACK -> { exitReader(); return true }
+                // 顶栏内自行循环移动焦点，避免焦点逃逸到 WebView 导致按键失控
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> {
+                    moveTopBarFocus(-1); return true
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    moveTopBarFocus(+1); return true
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    val f = topBar.findFocus()
+                    swallowNextUp = true
+                    if (f is TextView) f.performClick() else hideTopBar()
+                    return true
                 }
             }
             return super.dispatchKeyEvent(event)
@@ -674,9 +718,27 @@ function fixSrc(el, base){
         if (pageLoaded) deliver(body, content.style)
     }
 
-    /** 从章节 HTML 中提取脚注（alt 属性），与 JS 标记顺序一致 */
+    /** 从章节 HTML 中提取脚注：
+     *  ① img.qqreader-footnote 的 alt 文本（《理想国》这类）
+     *  ② p.ft 章尾注释块（《与拉玛相会》这类，正文用 a.fr 锚点引用）
+     */
     private fun extractNotesFromHtml(html: String): List<Pair<Int, String>> {
         val out = mutableListOf<Pair<Int, String>>()
+        // ② 章尾注释块
+        val ftRegex = Regex(
+            "<p[^>]*class=\"[^\"]*\\bft\\b[^\"]*\"[^>]*>(.*?)</p>",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        )
+        for (m in ftRegex.findAll(html)) {
+            val inner = m.groupValues[1]
+            val marker = Regex("\\[(\\d+)\\]").find(inner)?.groupValues?.get(1) ?: ""
+            val text = inner
+                .replace(Regex("<[^>]+>"), "")
+                .replace(Regex("\\[\\d+\\]"), "")
+                .trim()
+            if (text.isNotEmpty()) out.add(out.size to text)
+        }
+        // ① 行内图片注释（alt 文本）
         val imgRegex = Regex("<img[^>]*qqreader-footnote[^>]*>", RegexOption.IGNORE_CASE)
         for (m in imgRegex.findAll(html)) {
             val alt = Regex("alt=\"([^\"]*)\"").find(m.value)?.groupValues?.get(1) ?: ""
@@ -802,7 +864,8 @@ function fixSrc(el, base){
         topBar.visibility = VISIBLE
         topBarHint.visibility = VISIBLE
         topBar.findFocus()?.clearFocus()
-        topBarFocusables.firstOrNull()?.requestFocus()
+        // 布局可能尚未完成，延迟聚焦第一个按钮（返回阅读）
+        topBar.post { topBarFocusables.firstOrNull()?.requestFocus() }
     }
 
     private fun hideTopBar() {
