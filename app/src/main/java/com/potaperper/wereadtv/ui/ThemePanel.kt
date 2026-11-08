@@ -432,12 +432,16 @@ class ThemePanel(
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (tab == TAB_BG) {
-                    val palette = paletteView()
-                    if (palette?.hasFocus() == true) {
-                        palette.nudge(0, +1); return true
+                    // 只有焦点已在右侧内容区（色块/色盘）时才处理，
+                    // 焦点在左栏时交给默认导航（可下移到“排版”）
+                    val navFocused = navItems.any { it.hasFocus() }
+                    if (!navFocused) {
+                        val palette = paletteView()
+                        if (palette?.hasFocus() == true) {
+                            palette.nudge(0, +1); return true
+                        }
+                        if (palette != null) { palette.requestFocus(); return true }
                     }
-                    // 预设色块行按 DOWN：进入色盘
-                    if (palette != null) { palette.requestFocus(); return true }
                 }
             }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {

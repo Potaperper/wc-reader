@@ -318,7 +318,7 @@ function fixSrc(el, base){
                 } else {
                     centerHold++
                 }
-                if (centerHold >= 3 && !longPressFired) {
+                if (centerHold >= 5 && !longPressFired) {
                     longPressFired = true
                     requestNotes()
                     resetTap()
@@ -329,7 +329,7 @@ function fixSrc(el, base){
             if (longPressFired) return true
             val dur = now - centerDownAt
             val rapid = registerTap("center", now)
-            if (dur >= 450 || rapid >= 3) {
+            if (dur >= 600 || rapid >= 5) {
                 requestNotes()
                 resetTap()
             } else {
@@ -373,7 +373,7 @@ function fixSrc(el, base){
                 dirHold++
             }
             return when {
-                dirHold >= 3 -> {
+                dirHold >= 5 -> {
                     if (!longPressFired) {
                         longPressFired = true
                         jumpChapter(dir)
@@ -389,7 +389,7 @@ function fixSrc(el, base){
         if (longPressFired) return true
         val dur = now - dirDownAt
         val rapid = registerTap(keyName, now)
-        if (dur >= 450 || rapid >= 3) {
+        if (dur >= 600 || rapid >= 5) {
             jumpChapter(dir)
             resetTap()
         } else {
@@ -414,7 +414,7 @@ function fixSrc(el, base){
     private var tapLastAt = 0L
 
     private fun registerTap(name: String, now: Long): Int {
-        if (name == tapKeyName && now - tapLastAt < 700) {
+        if (name == tapKeyName && now - tapLastAt < 400) {
             tapCount++
         } else {
             tapKeyName = name
@@ -449,6 +449,7 @@ function fixSrc(el, base){
             visibility = GONE
         }
         val topBarButtons = listOf(
+            barButton("返回阅读", barFg) { hideTopBar() },
             barButton("目录", barFg) { toggleCatalog(true) },
             barButton("注释", barFg) { requestNotes() },
             barButton("字号", barFg) { activity.cycleFontSize() },
