@@ -1,4 +1,4 @@
-package com.potaperper.wereadtv.ui
+﻿package com.potaperper.wereadtv.ui
 
 import android.graphics.Canvas
 import android.graphics.Color
@@ -64,6 +64,7 @@ class ThemePanel(
     private lateinit var dirMapLabel: TextView
     private lateinit var longPressLabel: TextView
     private lateinit var textBrightnessLabel: TextView
+    private lateinit var boldLabel: TextView
     private lateinit var cornerTL: TextView
     private lateinit var cornerTR: TextView
     private lateinit var cornerBL: TextView
@@ -82,8 +83,7 @@ class ThemePanel(
     private lateinit var darkModeLabel: TextView
     private lateinit var hueSatPad: HueSatPad
     private lateinit var lightnessBar: LightnessBar
-    private lateinit var hexInput: EditText
-    private lateinit var hexApply: TextView
+    private lateinit var inputHexBtn: TextView
     private lateinit var saveCustomBtn: TextView
     private lateinit var customSwatch: FrameLayout
     private val swatchCells = mutableListOf<Pair<Int, FrameLayout>>()
@@ -318,7 +318,7 @@ class ThemePanel(
         lightnessBar = LightnessBar(activity).apply {
             layoutParams = LinearLayout.LayoutParams(dip(64), dip(210))
             setHsv(initial)
-            onPick = { v -> pickerVal = v; hueSatPad.value = v; applyPickerColor() }
+            onPick = { v -> pickerVal = v; applyPickerColor() }
         }
         val pickerRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -326,41 +326,14 @@ class ThemePanel(
             addView(lightnessBar)
         }
 
-        hexInput = EditText(activity).apply {
-            hint = "#RRGGBB"
-            setText(Theme.toHex(initial))
-            setTextColor(TEXT_MAIN)
-            setHintTextColor(TEXT_SUB)
-            textSize = 16f
-            isSingleLine = true
-            inputType = android.text.InputType.TYPE_CLASS_TEXT
-            background = GradientDrawable().apply {
-                setColor(CARD_BG)
-                cornerRadius = dip(10).toFloat()
-                setStroke(dip(1), CARD_BORDER)
-            }
-            setPadding(dip(18), dip(10), dip(18), dip(10))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-            )
-            setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) {
-                    postDelayed({
-                        val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                            as android.view.inputmethod.InputMethodManager
-                        imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-                    }, 150)
-                }
-            }
-        }
-        val hexApplyBtn = actionButton("应用色值") { applyHexColor() }
-        hexApply = hexApplyBtn
-        val saveCustomBtn = actionButton("保存为自定义颜色") {
+        val saveCustomBtnLocal = actionButton("保存为自定义颜色") {
             Theme.setCustomColor(activity, Theme.savedBgColor(activity))
             updateCustomSwatch()
             activity.showToast("已保存到「自定义」色块")
         }
-        this.saveCustomBtn = saveCustomBtn
+        saveCustomBtn = saveCustomBtnLocal
+        val inputHexBtnLocal = actionButton("输入色值…") { showHexDialog() }
+        inputHexBtn = inputHexBtnLocal
 
         val col = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -380,9 +353,8 @@ class ThemePanel(
                 setLineSpacing(dip(3).toFloat(), 1.15f)
                 setPadding(dip(4), dip(10), 0, dip(8))
             })
-            addView(hexInput)
-            addView(space(dip(8)))
-            addView(hexApply)
+            addView(saveCustomBtnLocal)
+            addView(inputHexBtnLocal)
             addView(saveCustomBtn)
         }
         return ScrollView(activity).apply {
@@ -404,7 +376,7 @@ class ThemePanel(
         }
     }
 
-    /** 把当前颜色同步到色盘 / 深浅滑块 / 色值输入框 */
+    /** 把当前颜色同步到色盘 / 明暗滑块 */
     private fun syncPicker(color: Int) {
         if (!::hueSatPad.isInitialized) return
         val hsv = FloatArray(3)
@@ -414,27 +386,105 @@ class ThemePanel(
         pickerVal = hsv[2].coerceAtLeast(0.05f)
         hueSatPad.setColor(color)
         lightnessBar.setHsv(color)
-        hexInput.setText(Theme.toHex(color))
     }
 
     private fun applyPickerColor() {
         val color = Color.HSVToColor(floatArrayOf(pickerHue, pickerSat, pickerVal))
-        hexInput.setText(Theme.toHex(color))
-        // 右侧明暗滑块的底色跟随色相/饱和度实时更新
+        // 右侧明暗滑块的底色跟随色相/饱和度实时更新（色盘本身始终满亮度）
         lightnessBar.setHueSat(pickerHue, pickerSat)
-        hueSatPad.value = pickerVal
         applyColor(color)
     }
 
-    private fun applyHexColor() {
-        val raw = hexInput.text.toString().trim().removePrefix("#").trim()
-        if (raw.length != 6 || raw.toLongOrNull(16) == null) {
-            activity.showToast("请输入 6 位十六进制色值，例如 #4A90D9")
-            return
+    /** 色值输入放在独立弹窗里，避免误触输入法 */
+    private fun showHexDialog() {
+        val dialog = android.app.Dialog(
+            activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen,
+        )
+        val input = EditText(activity).apply {
+            setText(Theme.toHex(Theme.savedBgColor(activity)))
+            hint = "#RRGGBB"
+            setTextColor(TEXT_MAIN)
+            setHintTextColor(TEXT_SUB)
+            textSize = 20f
+            isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            setPadding(dip(18), dip(12), dip(18), dip(12))
+            background = GradientDrawable().apply {
+                setColor(CARD_BG)
+                cornerRadius = dip(10).toFloat()
+                setStroke(dip(1), CARD_BORDER)
+            }
         }
-        val color = (0xFF000000L or raw.toLong(16)).toInt()
-        syncPicker(color)
-        applyColor(color)
+        val title = TextView(activity).apply {
+            text = "输入色值"
+            textSize = 20f
+            setTextColor(TEXT_MAIN)
+        }
+        val hintView = TextView(activity).apply {
+            text = "格式：#RRGGBB，例如 #4A90D9"
+            textSize = 13f
+            setTextColor(TEXT_SUB)
+            setPadding(0, dip(8), 0, dip(16))
+        }
+        fun validHex(): Int? {
+            val raw = input.text.toString().trim().removePrefix("#").trim()
+            if (raw.length != 6) return null
+            val v = raw.toLongOrNull(16) ?: return null
+            return (0xFF000000L or v).toInt()
+        }
+        val applyBtn = actionButton("应用色值") {
+            val c = validHex()
+            if (c == null) {
+                activity.showToast("色值格式不正确，请输入 6 位十六进制")
+            } else {
+                syncPicker(c)
+                applyColor(c)
+                dialog.dismiss()
+            }
+        }
+        val copyBtn = actionButton("复制当前色值") {
+            val cm = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("WC-reader 色值", input.text))
+            activity.showToast("已复制 ${input.text}")
+        }
+        val cancelBtn = actionButton("取消") { dialog.dismiss() }
+
+        val card = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dip(36), dip(30), dip(36), dip(26))
+            background = GradientDrawable().apply {
+                setColor(0xFF1B1B1F.toInt())
+                cornerRadius = dip(18).toFloat()
+                setStroke(dip(1), 0x22FFFFFF)
+            }
+            addView(title)
+            addView(hintView)
+            addView(input, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
+            addView(space(dip(14)))
+            addView(applyBtn)
+            addView(copyBtn)
+            addView(cancelBtn)
+        }
+        val root = FrameLayout(activity).apply {
+            setBackgroundColor(0xC8000000.toInt())
+            addView(card, FrameLayout.LayoutParams(
+                (resources.displayMetrics.widthPixels * 0.42f).toInt(),
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER,
+            ))
+        }
+        dialog.setContentView(root)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
+        input.requestFocus()
+        input.postDelayed({
+            val imm = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }, 300)
     }
 
     /** 暗黑模式是独立叠加模式：不修改用户保存的背景色，关闭后自动回到原配色 */
@@ -459,6 +509,7 @@ class ThemePanel(
     private fun buildLayoutContent(): ViewGroup {
         fontSizeLabel = prefRow("字号")
         textBrightnessLabel = prefRow("字体颜色浓淡")
+        boldLabel = prefRow("文字加粗")
         lineHeightLabel = prefRow("行距")
         marginLabel = prefRow("左右边距")
         marginYLabel = prefRow("上下边距")
@@ -483,6 +534,7 @@ class ThemePanel(
             addView(sectionTitle("文字"))
             addView(fontSizeLabel)
             addView(textBrightnessLabel)
+            addView(boldLabel)
             addView(sectionTitle("字体样式"))
             addView(fontCol)
             addView(space(dip(10)))
@@ -559,8 +611,15 @@ class ThemePanel(
         when (key) {
             "system" -> null
             "serif" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_serif.ttf")
+            "sans" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_sans.ttf")
             "kai" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_kai.ttf")
+            "kai_screen" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_kai_screen.ttf")
             "xihei" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_xihei.ttf")
+            "yozai" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_yozai.ttf")
+            "zcool" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_zcool.ttf")
+            "mashanzheng" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_mashanzheng.ttf")
+            "qingke" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_qingke.ttf")
+            "longcang" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_longcang.ttf")
             "mono" -> android.graphics.Typeface.MONOSPACE
             else -> null
         }
@@ -626,6 +685,7 @@ class ThemePanel(
         val value = when (name) {
             "字号" -> "${activity.fontSizeSp.toInt()} px"
             "字体颜色浓淡" -> "${Theme.textBrightness(activity)}%"
+            "文字加粗" -> if (Theme.readerBold(activity)) "开启" else "关闭"
             "行距" -> "${"%.1f".format(Theme.lineHeight(activity))} 倍"
             "左右边距" -> "${Theme.marginPx(activity)} px"
             "上下边距" -> "${Theme.marginYPx(activity)} px"
@@ -653,6 +713,7 @@ class ThemePanel(
     private fun refreshLayoutLabels() {
         stylePrefRow(fontSizeLabel, "字号", fontSizeLabel.hasFocus())
         stylePrefRow(textBrightnessLabel, "字体颜色浓淡", textBrightnessLabel.hasFocus())
+        stylePrefRow(boldLabel, "文字加粗", boldLabel.hasFocus())
         stylePrefRow(lineHeightLabel, "行距", lineHeightLabel.hasFocus())
         stylePrefRow(marginLabel, "左右边距", marginLabel.hasFocus())
         stylePrefRow(marginYLabel, "上下边距", marginYLabel.hasFocus())
@@ -786,14 +847,14 @@ class ThemePanel(
                 contentBg.findViewsWithTag(out, "swatch_focusable")
                 out.add(hueSatPad)
                 out.add(lightnessBar)
-                out.add(hexInput)
-                out.add(hexApply)
+                out.add(inputHexBtn)
                 out.add(saveCustomBtn)
                 out
             }
             TAB_LAYOUT -> buildList {
                 add(fontSizeLabel)
                 add(textBrightnessLabel)
+                add(boldLabel)
                 addAll(fontRows)
                 add(lineHeightLabel)
                 add(marginLabel)
@@ -839,11 +900,6 @@ class ThemePanel(
                     lightnessBar.adjusting = false
                     return true
                 }
-                if (hexInput.hasFocus()) {
-                    hideIme()
-                    hexApply.requestFocus()
-                    return true
-                }
                 val focusedView = findFocus()
                 val inNav = focusedView != null && navItems.any { it === focusedView }
                 if (focusedView != null && !inNav) {
@@ -871,7 +927,6 @@ class ThemePanel(
                     if (pickerAdjusting && lightnessBar.hasFocus()) {
                         pickerVal = (pickerVal + dir * 0.02f).coerceIn(0.05f, 1f)
                         lightnessBar.setValue(pickerVal)
-                        hueSatPad.value = pickerVal
                         applyPickerColor()
                         return true
                     }
@@ -896,7 +951,6 @@ class ThemePanel(
                     if (pickerAdjusting && lightnessBar.hasFocus()) {
                         pickerVal = (pickerVal - dy * 0.02f).coerceIn(0.05f, 1f)
                         lightnessBar.setValue(pickerVal)
-                        hueSatPad.value = pickerVal
                         applyPickerColor()
                         return true
                     }
@@ -937,6 +991,11 @@ class ThemePanel(
         }
         when (focused) {
             fontSizeLabel -> { activity.stepFontSize(dir); refreshLayoutLabels() }
+            boldLabel -> {
+                Theme.setReaderBold(activity, !Theme.readerBold(activity))
+                refreshLayoutLabels()
+                activity.onFontChanged()
+            }
             textBrightnessLabel -> {
                 Theme.setTextBrightness(activity, Theme.textBrightness(activity) + dir * 5)
                 refreshLayoutLabels()
@@ -1041,15 +1100,6 @@ class ThemePanel(
     private fun dip(v: Int): Int = (v * resources.displayMetrics.density).toInt()
     private fun dip(v: Float): Int = (v * resources.displayMetrics.density).toInt()
 
-    private fun hideIme() {
-        try {
-            val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                as android.view.inputmethod.InputMethodManager
-            imm.hideSoftInputFromWindow(hexInput.windowToken, 0)
-        } catch (_: Exception) {
-        }
-    }
-
     /**
      * 连续色盘：横轴色相（0-360°），纵轴饱和度（0-1），明度由右侧滑块控制。
      */
@@ -1059,11 +1109,6 @@ class ThemePanel(
             private set
         var sat = 0.5f
             private set
-        var value = 1f
-            set(v) {
-                field = v
-                invalidate()
-            }
 
         /** 调整模式：按 OK 进入，方向键才生效 */
         var adjusting = false
@@ -1091,7 +1136,6 @@ class ThemePanel(
             Color.colorToHSV(color, hsv)
             hue = hsv[0]
             sat = hsv[1]
-            value = if (hsv[2] < 0.05f) 1f else hsv[2]
             invalidate()
         }
 
@@ -1125,11 +1169,6 @@ class ThemePanel(
             )
             canvas.drawRoundRect(l, t, r, b, dip(8).toFloat(), dip(8).toFloat(), paint)
             paint.shader = null
-            // 明度预览
-            if (value < 1f) {
-                paint.color = Color.argb(((1f - value) * 255).toInt(), 0, 0, 0)
-                canvas.drawRoundRect(l, t, r, b, dip(8).toFloat(), dip(8).toFloat(), paint)
-            }
             // 选中点
             val cx = l + (r - l) * hue / 360f
             val cy = t + (b - t) * sat

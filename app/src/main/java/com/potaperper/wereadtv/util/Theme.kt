@@ -31,14 +31,27 @@ object Theme {
     val FONTS = listOf(
         "system" to "系统默认",
         "serif" to "思源宋体",
+        "sans" to "思源黑体",
         "kai" to "霞鹜文楷",
+        "kai_screen" to "霞鹜文楷·屏幕版",
         "xihei" to "霞鹜新晰黑",
+        "yozai" to "悠哉字体",
+        "zcool" to "站酷小薇",
+        "mashanzheng" to "马善政毛笔楷书",
+        "qingke" to "站酷庆科黄油",
+        "longcang" to "龙藏体",
         "mono" to "等宽字体",
     )
 
     fun readerFont(ctx: Context): String = prefs(ctx).getString("readerFont", "system") ?: "system"
     fun setReaderFont(ctx: Context, v: String) {
         prefs(ctx).edit().putString("readerFont", v).apply()
+    }
+
+    /** 正文加粗 */
+    fun readerBold(ctx: Context): Boolean = prefs(ctx).getBoolean("readerBold", false)
+    fun setReaderBold(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("readerBold", v).apply()
     }
 
     // ---------- 阅读偏好 ----------
@@ -92,7 +105,7 @@ object Theme {
     val CORNER_MODES = listOf(
         CORNER_TIME to "时间",
         CORNER_CHAPTER to "章节号",
-        CORNER_PAGES to "本页/总页",
+        CORNER_PAGES to "当前页/本章节页",
         CORNER_CHAPTER_PERCENT to "本章进度",
         CORNER_BOOK_PERCENT to "全书进度",
         CORNER_BOOK to "书名",

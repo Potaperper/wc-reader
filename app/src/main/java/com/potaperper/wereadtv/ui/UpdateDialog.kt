@@ -48,7 +48,7 @@ class UpdateDialog(
         }
 
         val notesView = TextView(activity).apply {
-            text = info.notes.trim().ifEmpty { "包含若干修复与改进。" }.take(500)
+            text = info.notes.trim().ifEmpty { "包含若干修复与改进。" }.take(700)
             textSize = 13f
             setTextColor(0xFF9A9AA2.toInt())
             setLineSpacing(dip(3).toFloat(), 1.15f)

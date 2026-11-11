@@ -44,8 +44,15 @@ class ReaderView(
 html,body{margin:0;padding:0;background:${Theme.toHex(bg)};height:100%;overflow:hidden;}
 #viewport{position:fixed;inset:0;overflow:hidden;}
 @font-face{font-family:'WC-Serif';src:url('https://wc-reader.local/fonts/noto_serif_sc.woff2');}
+@font-face{font-family:'WC-Sans';src:url('https://wc-reader.local/fonts/noto_sans_sc.woff2');}
 @font-face{font-family:'WC-Kai';src:url('https://wc-reader.local/fonts/lxgw_wenkai.woff2');}
+@font-face{font-family:'WC-KaiScreen';src:url('https://wc-reader.local/fonts/lxgw_wenkai_screen.woff2');}
 @font-face{font-family:'WC-XiHei';src:url('https://wc-reader.local/fonts/lxgw_xihei.woff2');}
+@font-face{font-family:'WC-Yozai';src:url('https://wc-reader.local/fonts/yozai.woff2');}
+@font-face{font-family:'WC-Zcool';src:url('https://wc-reader.local/fonts/zcool_xiaowei.woff2');}
+@font-face{font-family:'WC-MaShanZheng';src:url('https://wc-reader.local/fonts/mashanzheng.woff2');}
+@font-face{font-family:'WC-QingKe';src:url('https://wc-reader.local/fonts/zcool_qingke.woff2');}
+@font-face{font-family:'WC-LongCang';src:url('https://wc-reader.local/fonts/longcang.woff2');}
 #pager{
   height:100%;box-sizing:border-box;
   color:${Theme.toHex(fg)};
@@ -120,10 +127,13 @@ window.setZoom = function(fontPx){
   window.__page = 0;
   requestAnimationFrame(function(){ requestAnimationFrame(function(){ goTo(0, true); }); });
 };
-window.setFontFamily = function(family){
+window.setFontFamily = function(family, bold){
   var st = document.getElementById('wr-font');
   if (!st) { st = document.createElement('style'); st.id = 'wr-font'; document.head.appendChild(st); }
-  st.textContent = family ? ('#pager, #pager *{font-family:' + family + ' !important;}') : '';
+  var css = '';
+  if (family) css += '#pager, #pager *{font-family:' + family + ' !important;}';
+  if (bold) css += '#pager, #pager *{font-weight:700 !important;}';
+  st.textContent = css;
   pagerEl().style.fontFamily = family || '';
   requestAnimationFrame(function(){ requestAnimationFrame(function(){ relayout(); goTo(window.__page, true); }); });
 };
@@ -912,16 +922,26 @@ function fixSrc(el, base){
         mainHandler.postDelayed({ refreshHud() }, 350)
     }
 
-    /** 应用阅读字体（系统/思源宋体/霞鹜文楷/得意黑/等宽） */
+    /** 应用阅读字体与加粗（系统/思源宋体/霞鹜文楷/霞鹜新晰黑/等宽） */
     fun applyFont() {
         val family = when (Theme.readerFont(activity)) {
             "serif" -> "'WC-Serif', serif"
+            "sans" -> "'WC-Sans', sans-serif"
             "kai" -> "'WC-Kai', serif"
+            "kai_screen" -> "'WC-KaiScreen', serif"
             "xihei" -> "'WC-XiHei', sans-serif"
+            "yozai" -> "'WC-Yozai', serif"
+            "zcool" -> "'WC-Zcool', serif"
+            "mashanzheng" -> "'WC-MaShanZheng', serif"
+            "qingke" -> "'WC-QingKe', sans-serif"
+            "longcang" -> "'WC-LongCang', serif"
             "mono" -> "monospace"
             else -> ""
         }
-        webView.evaluateJavascript("window.setFontFamily(${jsStr(family)})", null)
+        val bold = Theme.readerBold(activity)
+        webView.evaluateJavascript(
+            "window.setFontFamily(${jsStr(family)}, $bold)", null,
+        )
     }
 
     fun applyTheme() {

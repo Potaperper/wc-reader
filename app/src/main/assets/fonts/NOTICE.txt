@@ -1,0 +1,39 @@
+WC-reader 内置字体来源与版权说明
+================================
+
+所有字体均采用 SIL Open Font License 1.1（许可全文见同目录 OFL.txt）。
+
+1. 思源宋体 / Noto Serif SC
+   Copyright 2017-2022 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+   https://github.com/notofonts/noto-cjk
+
+2. 思源黑体 / Noto Sans SC
+   Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+   https://github.com/notofonts/noto-cjk
+
+3. 霞鹜文楷 Lite / 霞鹜文楷屏幕版 / 霞鹜新晰黑
+   Copyright 2021-2026 LXGW (https://github.com/lxgw)
+   https://github.com/lxgw/LxgwWenKai-Lite
+   https://github.com/lxgw/LxgwWenKai-Screen
+   https://github.com/lxgw/LxgwNeoXiHei
+
+4. 悠哉字体 / Yozai
+   Copyright 2021-2026 LXGW (https://github.com/lxgw/Yozai-Font)
+
+5. 站酷小薇 / ZCOOL XiaoWei
+   Copyright 2018 ZCOOL (https://www.zcool.com.cn/)
+   https://fonts.google.com/specimen/ZCOOL+XiaoWei
+
+6. 站酷庆科黄油 / ZCOOL QingKe HuangYou
+   Copyright 2018 ZCOOL (https://www.zcool.com.cn/)
+   https://fonts.google.com/specimen/ZCOOL+QingKe+HuangYou
+
+7. 马善政毛笔楷书 / Ma Shan Zheng
+   Copyright 2018 Ma Shan Zheng
+   https://fonts.google.com/specimen/Ma+Shan+Zheng
+
+8. 龙藏体 / Long Cang
+   Copyright 2018 Long Cang
+   https://fonts.google.com/specimen/Long+Cang
+
+字体文件已做子集化（常用 3500 汉字 + 标点/ASCII），以减小安装包体积。

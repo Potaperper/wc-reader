@@ -35,7 +35,7 @@ VSCode 上的 [TouchFish](https://github.com/ylw1997/touchFish) 插件把微信�
 - 书内注释：支持行内图片注释与章尾 `[n]` 锚点注释——正文只显示上标序号，长按 OK 或顶栏「注释」查看全文
 - 主题：5 种预设色 + 1 个自定义保存色 + 连续色盘（色相/饱和度/明度）+ 十六进制色值输入
 - 暗黑模式：独立的纯黑 + 浅灰配色，开关不影响已保存的背景色
-- 字体：内置思源宋体、霞鹜文楷、霞鹜新晰黑（均为 SIL OFL 开源字体），可另选系统默认/等宽
+- 字体：内置 10 种开源字体（思源宋体/思源黑体/霞鹜文楷/霞鹜文楷屏幕版/霞鹜新晰黑/悠哉字体/站酷小薇/马善政毛笔楷书/站酷庆科黄油/龙藏体），可另选系统默认或等宽；支持正文加粗
 - 排版：字号（1px 步进）、字体颜色浓淡、行距、左右/上下页边距、翻页方式（平滑/瞬时）、翻页方向（左右/上下）、长按行为
 - 阅读页四角信息：时间 / 章节号 / 本页页数 / 本章进度 / 全书进度 / 书名，四个角可分别设置
 - 目录快速跳跃：长按方向键达到设定时间后进入快速模式，每次跳过可配置的章节数
@@ -60,7 +60,7 @@ VSCode 上的 [TouchFish](https://github.com/ylw1997/touchFish) 插件把微信�
 
 ```bash
 adb connect <电视IP>:5555   # 需先在电视上开启 ADB 调试
-adb install WCReader-1.0.4.apk
+adb install WCReader-1.0.5.apk
 ```
 
 ### 方式二：U 盘
@@ -91,11 +91,16 @@ gradle assembleDebug
 
 ## 字体许可
 
-内置阅读字体均为 SIL Open Font License 1.1 开源字体：
+内置阅读字体均为 SIL Open Font License 1.1 开源字体（Google Fonts 与作者官方发布版）：
 
-- [思源宋体 / Noto Serif SC](https://github.com/notofonts/noto-cjk) — SIL OFL 1.1
-- [霞鹜文楷 Lite](https://github.com/lxgw/LxgwWenKai-Lite) — SIL OFL 1.1
-- [霞鹜新晰黑](https://github.com/lxgw/LxgwNeoXiHei) — SIL OFL 1.1
+- 思源宋体 / Noto Serif SC
+- 思源黑体 / Noto Sans SC
+- 霞鹜文楷 Lite / 霞鹜文楷屏幕版 / 霞鹜新晰黑（LXGW）
+- 悠哉字体（LXGW Yozai）
+- 站酷小薇 / 站酷庆科黄油（ZCOOL，Google Fonts）
+- 马善政毛笔楷书 / 龙藏体（Google Fonts）
+
+许可全文见 `app/src/main/assets/fonts/OFL.txt`。
 
 ## 免责声明
 
