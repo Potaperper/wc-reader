@@ -63,14 +63,16 @@ class ThemePanel(
     private lateinit var pageModeLabel: TextView
     private lateinit var dirMapLabel: TextView
     private lateinit var longPressLabel: TextView
-    private lateinit var textColorLabel: TextView
     private lateinit var textBrightnessLabel: TextView
-    private lateinit var cornerInfoLabel2: TextView
     private lateinit var cornerTL: TextView
     private lateinit var cornerTR: TextView
     private lateinit var cornerBL: TextView
     private lateinit var cornerBR: TextView
     private lateinit var autoUpdateLabel: TextView
+
+    // ---- 字体 ----
+    private val fontRows = mutableListOf<TextView>()
+    private var selectedFont = "system"
 
     // ---- 额外功能控件 ----
     private lateinit var fastJumpSecLabel: TextView
@@ -82,21 +84,15 @@ class ThemePanel(
     private lateinit var lightnessBar: LightnessBar
     private lateinit var hexInput: EditText
     private lateinit var hexApply: TextView
+    private lateinit var saveCustomBtn: TextView
+    private lateinit var customSwatch: FrameLayout
+    private val swatchCells = mutableListOf<Pair<Int, FrameLayout>>()
+    private val swatchColors = HashMap<View, Int>()
 
+    private var pickerAdjusting = false
     private var pickerHue = 210f
     private var pickerSat = 0.5f
     private var pickerVal = 1f
-
-    /** 正文字体颜色预设（-1 = 跟随背景自动） */
-    private val textColorOptions = listOf(
-        "自动" to -1,
-        "暖白" to 0xFFEAEAEE.toInt(),
-        "米黄" to 0xFFE3D7BE.toInt(),
-        "浅灰" to 0xFF9E9E9E.toInt(),
-        "墨黑" to 0xFF1A1A1A.toInt(),
-        "深棕" to 0xFF5B4636.toInt(),
-        "藏蓝" to 0xFF1F3A5F.toInt(),
-    )
 
     private var contentFocused = false
 
@@ -263,34 +259,42 @@ class ThemePanel(
             setPadding(0, dip(10), 0, dip(6))
             clipChildren = false
             clipToPadding = false
-            var i = 0
-            for ((name, color) in Theme.PRESETS) {
+            val entries = Theme.PRESETS.toList() + listOf("自定义" to Theme.customColor(activity))
+            entries.forEachIndexed { idx, (name, color) ->
+                val bgView = FrameLayout(activity).apply {
+                    tag = "swatch_focusable"
+                    background = GradientDrawable().apply {
+                        setColor(color)
+                        cornerRadius = dip(14).toFloat()
+                        setStroke(dip(2), swatchBorderColor(color))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(dip(56), dip(56))
+                    isFocusable = true
+                    isFocusableInTouchMode = true
+                    setOnFocusChangeListener { v, hasFocus ->
+                        v.animate().scaleX(if (hasFocus) 1.12f else 1f)
+                            .scaleY(if (hasFocus) 1.12f else 1f).setDuration(110).start()
+                        (v.background as? GradientDrawable)?.setStroke(
+                            dip(if (hasFocus) 3 else 2),
+                            if (hasFocus) 0xFFFFFFFF.toInt() else swatchBorderColor(swatchColors[v] ?: color),
+                        )
+                    }
+                    setOnClickListener {
+                        val c = swatchColors[this] ?: color
+                        syncPicker(c)
+                        applyColor(c)
+                    }
+                }
+                swatchColors[bgView] = color
+                if (idx == entries.size - 1) customSwatch = bgView
+                swatchCells.add(idx to bgView)
                 val cell = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER_HORIZONTAL
                     clipChildren = false
                     clipToPadding = false
                     layoutParams = LinearLayout.LayoutParams(dip(82), ViewGroup.LayoutParams.WRAP_CONTENT)
-                    addView(FrameLayout(activity).apply {
-                        tag = "swatch_focusable"
-                        background = GradientDrawable().apply {
-                            setColor(color)
-                            cornerRadius = dip(14).toFloat()
-                            setStroke(dip(2), swatchBorderColor(color))
-                        }
-                        layoutParams = LinearLayout.LayoutParams(dip(56), dip(56))
-                        isFocusable = true
-                        isFocusableInTouchMode = true
-                        setOnFocusChangeListener { v, hasFocus ->
-                            v.animate().scaleX(if (hasFocus) 1.12f else 1f)
-                                .scaleY(if (hasFocus) 1.12f else 1f).setDuration(110).start()
-                            (v.background as? GradientDrawable)?.setStroke(
-                                dip(if (hasFocus) 3 else 2),
-                                if (hasFocus) 0xFFFFFFFF.toInt() else swatchBorderColor(color),
-                            )
-                        }
-                        setOnClickListener { syncPicker(color); applyColor(color) }
-                    })
+                    addView(bgView)
                     addView(TextView(activity).apply {
                         text = name
                         textSize = 12f
@@ -300,11 +304,10 @@ class ThemePanel(
                     })
                 }
                 addView(cell)
-                i++
             }
         }
 
-        val initial = Theme.bgColor(activity)
+        val initial = Theme.savedBgColor(activity)
         hueSatPad = HueSatPad(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
                 0, dip(210), 1f,
@@ -352,6 +355,12 @@ class ThemePanel(
         }
         val hexApplyBtn = actionButton("应用色值") { applyHexColor() }
         hexApply = hexApplyBtn
+        val saveCustomBtn = actionButton("保存为自定义颜色") {
+            Theme.setCustomColor(activity, Theme.savedBgColor(activity))
+            updateCustomSwatch()
+            activity.showToast("已保存到「自定义」色块")
+        }
+        this.saveCustomBtn = saveCustomBtn
 
         val col = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -361,22 +370,37 @@ class ThemePanel(
             addView(darkModeLabel)
             addView(swatchRow)
             addView(space(dip(18)))
-            addView(sectionTitle("自定义颜色（左右选色相 · 上下调饱和）"))
+            addView(sectionTitle("自定义颜色"))
             addView(pickerRow)
             addView(TextView(activity).apply {
-                text = "OK 在 色盘 → 深浅 → 色值 之间切换；深浅滑块位于色盘右侧"
+                text = "色盘上按 OK 进入调整：左右调色相、上下调饱和；返回键退出调整。" +
+                    "右侧滑块调明暗；调整结果自动生效。"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
+                setLineSpacing(dip(3).toFloat(), 1.15f)
                 setPadding(dip(4), dip(10), 0, dip(8))
             })
             addView(hexInput)
             addView(space(dip(8)))
             addView(hexApply)
+            addView(saveCustomBtn)
         }
         return ScrollView(activity).apply {
             clipChildren = false
             clipToPadding = false
             addView(col)
+        }
+    }
+
+    /** 自定义色块换色后刷新边框与底色 */
+    private fun updateCustomSwatch() {
+        if (!::customSwatch.isInitialized) return
+        val color = Theme.customColor(activity)
+        swatchColors[customSwatch] = color
+        customSwatch.background = GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dip(14).toFloat()
+            setStroke(dip(2), swatchBorderColor(color))
         }
     }
 
@@ -396,6 +420,9 @@ class ThemePanel(
     private fun applyPickerColor() {
         val color = Color.HSVToColor(floatArrayOf(pickerHue, pickerSat, pickerVal))
         hexInput.setText(Theme.toHex(color))
+        // 右侧明暗滑块的底色跟随色相/饱和度实时更新
+        lightnessBar.setHueSat(pickerHue, pickerSat)
+        hueSatPad.value = pickerVal
         applyColor(color)
     }
 
@@ -410,21 +437,18 @@ class ThemePanel(
         applyColor(color)
     }
 
+    /** 暗黑模式是独立叠加模式：不修改用户保存的背景色，关闭后自动回到原配色 */
     private fun toggleDarkMode() {
         val on = !Theme.darkMode(activity)
         Theme.setDarkMode(activity, on)
-        if (on) {
-            Theme.setBgColor(activity, 0xFF000000.toInt())
-            Theme.setTextColorOverride(activity, 0xFFB8B8B8.toInt())
+        if (!on) {
+            // 回到正常模式：文字自动使用对比色，并把浓淡恢复满
             Theme.setTextBrightness(activity, 100)
-        } else {
-            Theme.setBgColor(activity, Theme.DEFAULT_BG)
-            Theme.setTextColorOverride(activity, -1)
         }
-        syncPicker(Theme.bgColor(activity))
         refreshLayoutLabels()
-        applyColor(Theme.bgColor(activity), keepDarkMode = true)
-        activity.onTextColorChanged()
+        // 关闭时色盘/色值恢复为用户原先保存的颜色
+        if (!on) syncPicker(Theme.savedBgColor(activity))
+        activity.onDarkModeChanged()
     }
 
     private fun swatchBorderColor(color: Int): Int =
@@ -434,8 +458,7 @@ class ThemePanel(
 
     private fun buildLayoutContent(): ViewGroup {
         fontSizeLabel = prefRow("字号")
-        textColorLabel = prefRow("文字颜色")
-        textBrightnessLabel = prefRow("文字浓淡")
+        textBrightnessLabel = prefRow("字体颜色浓淡")
         lineHeightLabel = prefRow("行距")
         marginLabel = prefRow("左右边距")
         marginYLabel = prefRow("上下边距")
@@ -444,12 +467,25 @@ class ThemePanel(
         longPressLabel = prefRow("长按方向键")
         refreshLayoutLabels()
 
+        fontRows.clear()
+        selectedFont = Theme.readerFont(activity)
+        val fontCol = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            for ((key, name) in Theme.FONTS) {
+                val row = fontRow(key, name)
+                fontRows.add(row)
+                addView(row)
+            }
+        }
+
         val col = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             addView(sectionTitle("文字"))
             addView(fontSizeLabel)
-            addView(textColorLabel)
             addView(textBrightnessLabel)
+            addView(sectionTitle("字体样式"))
+            addView(fontCol)
+            addView(space(dip(10)))
             addView(sectionTitle("版式"))
             addView(lineHeightLabel)
             addView(marginLabel)
@@ -470,12 +506,73 @@ class ThemePanel(
         return ScrollView(activity).apply { addView(col) }
     }
 
+    /** 字体选项行：用该字体渲染自己的名字，选中的前面加 ✓ */
+    private fun fontRow(key: String, name: String): TextView {
+        val tf = fontTypeface(key)
+        return TextView(activity).apply {
+            textSize = 19f
+            setPadding(dip(22), dip(14), dip(22), dip(14))
+            isFocusable = true
+            isFocusableInTouchMode = true
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dip(8) }
+            if (tf != null) typeface = tf
+            tag = key
+            setOnClickListener {
+                selectedFont = key
+                Theme.setReaderFont(activity, key)
+                refreshFontRows()
+                activity.onFontChanged()
+            }
+            setOnFocusChangeListener { v, _ -> styleFontRow(v as TextView) }
+            styleFontRow(this)
+        }
+    }
+
+    private fun refreshFontRows() {
+        for (row in fontRows) styleFontRow(row)
+    }
+
+    private fun styleFontRow(v: TextView) {
+        val key = v.tag as? String ?: "system"
+        val name = Theme.FONTS.firstOrNull { it.first == key }?.second ?: key
+        val selected = key == selectedFont
+        val focused = v.hasFocus()
+        v.text = (if (selected) "✓  " else "　　") + name
+        v.setTextColor(
+            when {
+                focused -> 0xFFFFFFFF.toInt()
+                selected -> ACCENT
+                else -> TEXT_MAIN
+            },
+        )
+        v.background = GradientDrawable().apply {
+            cornerRadius = dip(12).toFloat()
+            setColor(if (focused) 0x2E4A90D9 else CARD_BG)
+            setStroke(dip(1), if (focused) ACCENT else CARD_BORDER)
+        }
+    }
+
+    /** 字体预览用 typeface；字体文件缺失时退回系统字体 */
+    private fun fontTypeface(key: String): android.graphics.Typeface? = try {
+        when (key) {
+            "system" -> null
+            "serif" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_serif.ttf")
+            "kai" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_kai.ttf")
+            "xihei" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_xihei.ttf")
+            "mono" -> android.graphics.Typeface.MONOSPACE
+            else -> null
+        }
+    } catch (e: Exception) {
+        null
+    }
+
     // ---------- 额外功能内容 ----------
 
     private fun buildExtraContent(): ViewGroup {
         fastJumpSecLabel = prefRow("长按触发时间")
         fastJumpChaptersLabel = prefRow("每次跳跃章数")
-        cornerInfoLabel2 = prefRow("四角信息")
         cornerTL = prefRow("左上角")
         cornerTR = prefRow("右上角")
         cornerBL = prefRow("左下角")
@@ -496,13 +593,12 @@ class ThemePanel(
                 setPadding(dip(4), dip(4), dip(4), dip(18))
             })
             addView(sectionTitle("阅读页四角信息"))
-            addView(cornerInfoLabel2)
             addView(cornerTL)
             addView(cornerTR)
             addView(cornerBL)
             addView(cornerBR)
             addView(TextView(activity).apply {
-                text = "四个角可以分别选择显示内容，选择「不显示」即可隐藏。"
+                text = "四个角可以分别选择显示内容，选择「无」即可隐藏。"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
                 setLineSpacing(dip(3).toFloat(), 1.15f)
@@ -529,12 +625,10 @@ class ThemePanel(
     private fun stylePrefRow(v: TextView, name: String, focused: Boolean) {
         val value = when (name) {
             "字号" -> "${activity.fontSizeSp.toInt()} px"
-            "文字颜色" -> textColorOptions.firstOrNull { it.second == Theme.textColorOverride(activity) }?.first ?: "自动"
-            "文字浓淡" -> "${Theme.textBrightness(activity)}%"
+            "字体颜色浓淡" -> "${Theme.textBrightness(activity)}%"
             "行距" -> "${"%.1f".format(Theme.lineHeight(activity))} 倍"
             "左右边距" -> "${Theme.marginPx(activity)} px"
             "上下边距" -> "${Theme.marginYPx(activity)} px"
-            "四角信息" -> if (Theme.showCornerInfo(activity)) "显示" else "隐藏"
             "左上角" -> cornerLabel(0)
             "右上角" -> cornerLabel(1)
             "左下角" -> cornerLabel(2)
@@ -558,8 +652,7 @@ class ThemePanel(
 
     private fun refreshLayoutLabels() {
         stylePrefRow(fontSizeLabel, "字号", fontSizeLabel.hasFocus())
-        stylePrefRow(textColorLabel, "文字颜色", textColorLabel.hasFocus())
-        stylePrefRow(textBrightnessLabel, "文字浓淡", textBrightnessLabel.hasFocus())
+        stylePrefRow(textBrightnessLabel, "字体颜色浓淡", textBrightnessLabel.hasFocus())
         stylePrefRow(lineHeightLabel, "行距", lineHeightLabel.hasFocus())
         stylePrefRow(marginLabel, "左右边距", marginLabel.hasFocus())
         stylePrefRow(marginYLabel, "上下边距", marginYLabel.hasFocus())
@@ -569,7 +662,6 @@ class ThemePanel(
         if (::fastJumpSecLabel.isInitialized) {
             stylePrefRow(fastJumpSecLabel, "长按触发时间", fastJumpSecLabel.hasFocus())
             stylePrefRow(fastJumpChaptersLabel, "每次跳跃章数", fastJumpChaptersLabel.hasFocus())
-            stylePrefRow(cornerInfoLabel2, "四角信息", cornerInfoLabel2.hasFocus())
             stylePrefRow(cornerTL, "左上角", cornerTL.hasFocus())
             stylePrefRow(cornerTR, "右上角", cornerTR.hasFocus())
             stylePrefRow(cornerBL, "左下角", cornerBL.hasFocus())
@@ -585,7 +677,7 @@ class ThemePanel(
 
     private fun cornerLabel(corner: Int): String {
         val cur = Theme.cornerMode(activity, corner)
-        return Theme.CORNER_MODES.firstOrNull { it.first == cur }?.second ?: "不显示"
+        return Theme.CORNER_MODES.firstOrNull { it.first == cur }?.second ?: "无"
     }
 
     // ---------- 关于内容 ----------
@@ -696,15 +788,22 @@ class ThemePanel(
                 out.add(lightnessBar)
                 out.add(hexInput)
                 out.add(hexApply)
+                out.add(saveCustomBtn)
                 out
             }
-            TAB_LAYOUT -> listOf(
-                fontSizeLabel, textColorLabel, textBrightnessLabel, lineHeightLabel,
-                marginLabel, marginYLabel,
-                pageModeLabel, dirMapLabel, longPressLabel,
-            )
+            TAB_LAYOUT -> buildList {
+                add(fontSizeLabel)
+                add(textBrightnessLabel)
+                addAll(fontRows)
+                add(lineHeightLabel)
+                add(marginLabel)
+                add(marginYLabel)
+                add(pageModeLabel)
+                add(dirMapLabel)
+                add(longPressLabel)
+            }
             TAB_EXTRA -> listOf(
-                fastJumpSecLabel, fastJumpChaptersLabel, cornerInfoLabel2,
+                fastJumpSecLabel, fastJumpChaptersLabel,
                 cornerTL, cornerTR, cornerBL, cornerBR,
             )
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
@@ -734,6 +833,12 @@ class ThemePanel(
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
         when (event.keyCode) {
             KeyEvent.KEYCODE_BACK -> {
+                if (pickerAdjusting) {
+                    pickerAdjusting = false
+                    hueSatPad.adjusting = false
+                    lightnessBar.adjusting = false
+                    return true
+                }
                 if (hexInput.hasFocus()) {
                     hideIme()
                     hexApply.requestFocus()
@@ -752,16 +857,18 @@ class ThemePanel(
             }
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 val dir = if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) -1 else +1
-                if (tab == TAB_LAYOUT || tab == TAB_EXTRA) {
+                if (tab == TAB_LAYOUT) {
+                    if (consumeAdjust(dir)) return true
+                } else if (tab == TAB_EXTRA) {
                     if (consumeAdjust(dir)) return true
                 } else if (tab == TAB_BG) {
-                    if (hueSatPad.hasFocus()) {
+                    if (pickerAdjusting && hueSatPad.hasFocus()) {
                         pickerHue = (pickerHue + dir * 2f + 360f) % 360f
                         hueSatPad.setHueSat(pickerHue, pickerSat)
                         applyPickerColor()
                         return true
                     }
-                    if (lightnessBar.hasFocus()) {
+                    if (pickerAdjusting && lightnessBar.hasFocus()) {
                         pickerVal = (pickerVal + dir * 0.02f).coerceIn(0.05f, 1f)
                         lightnessBar.setValue(pickerVal)
                         hueSatPad.value = pickerVal
@@ -780,24 +887,14 @@ class ThemePanel(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
                 val dy = if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) -1 else +1
                 if (tab == TAB_BG) {
-                    if (hueSatPad.hasFocus()) {
-                        val next = (pickerSat + dy * 0.02f).coerceIn(0f, 1f)
-                        if (dy < 0 && next <= 0f) {
-                            firstSwatch()?.requestFocus()
-                            return true
-                        }
-                        pickerSat = next
+                    if (pickerAdjusting && hueSatPad.hasFocus()) {
+                        pickerSat = (pickerSat + dy * 0.02f).coerceIn(0f, 1f)
                         hueSatPad.setHueSat(pickerHue, pickerSat)
                         applyPickerColor()
                         return true
                     }
-                    if (lightnessBar.hasFocus()) {
-                        val next = (pickerVal - dy * 0.02f).coerceIn(0.05f, 1f)
-                        if (dy < 0 && next >= 1f) {
-                            hueSatPad.requestFocus()
-                            return true
-                        }
-                        pickerVal = next
+                    if (pickerAdjusting && lightnessBar.hasFocus()) {
+                        pickerVal = (pickerVal - dy * 0.02f).coerceIn(0.05f, 1f)
                         lightnessBar.setValue(pickerVal)
                         hueSatPad.value = pickerVal
                         applyPickerColor()
@@ -812,9 +909,14 @@ class ThemePanel(
                     val list = contentFocusables
                     if (list.isNotEmpty()) { list[0].requestFocus(); return true }
                 }
-                if (tab == TAB_BG) {
-                    if (hueSatPad.hasFocus()) { lightnessBar.requestFocus(); return true }
-                    if (lightnessBar.hasFocus()) { hexInput.requestFocus(); return true }
+                if (tab == TAB_BG && (hueSatPad.hasFocus() || lightnessBar.hasFocus())) {
+                    pickerAdjusting = !pickerAdjusting
+                    hueSatPad.adjusting = pickerAdjusting
+                    lightnessBar.adjusting = pickerAdjusting
+                    if (pickerAdjusting) {
+                        activity.showToast("调整中：左右=色相，上下=饱和/明暗，返回键退出")
+                    }
+                    return true
                 }
             }
         }
@@ -829,9 +931,12 @@ class ThemePanel(
 
     private fun consumeAdjust(dir: Int): Boolean {
         val focused = contentFocusables.firstOrNull { it.hasFocus() } ?: return false
+        if (focused in fontRows) {
+            moveFontSelection(dir)
+            return true
+        }
         when (focused) {
             fontSizeLabel -> { activity.stepFontSize(dir); refreshLayoutLabels() }
-            textColorLabel -> cycleTextColor(dir)
             textBrightnessLabel -> {
                 Theme.setTextBrightness(activity, Theme.textBrightness(activity) + dir * 5)
                 refreshLayoutLabels()
@@ -840,11 +945,6 @@ class ThemePanel(
             lineHeightLabel -> adjLineHeight(if (dir > 0) 0.1f else -0.1f)
             marginLabel -> adjMargin(if (dir > 0) 8 else -8)
             marginYLabel -> adjMarginY(if (dir > 0) 8 else -8)
-            cornerInfoLabel2 -> {
-                Theme.setShowCornerInfo(activity, !Theme.showCornerInfo(activity))
-                refreshLayoutLabels()
-                activity.onCornerInfoChanged()
-            }
             cornerTL -> cycleCorner(0, dir)
             cornerTR -> cycleCorner(1, dir)
             cornerBL -> cycleCorner(2, dir)
@@ -882,13 +982,13 @@ class ThemePanel(
     }
 
     /** 左右键在预设文字颜色间循环 */
-    private fun cycleTextColor(dir: Int) {
-        val cur = Theme.textColorOverride(activity)
-        val idx = textColorOptions.indexOfFirst { it.second == cur }.let { if (it < 0) 0 else it }
-        val next = (idx + dir + textColorOptions.size) % textColorOptions.size
-        Theme.setTextColorOverride(activity, textColorOptions[next].second)
-        refreshLayoutLabels()
-        activity.onTextColorChanged()
+    private fun moveFontSelection(dir: Int) {
+        val idx = Theme.FONTS.indexOfFirst { it.first == selectedFont }.let { if (it < 0) 0 else it }
+        val next = (idx + dir + Theme.FONTS.size) % Theme.FONTS.size
+        selectedFont = Theme.FONTS[next].first
+        Theme.setReaderFont(activity, selectedFont)
+        refreshFontRows()
+        activity.onFontChanged()
     }
 
     private fun adjLineHeight(delta: Float) {
@@ -965,6 +1065,13 @@ class ThemePanel(
                 invalidate()
             }
 
+        /** 调整模式：按 OK 进入，方向键才生效 */
+        var adjusting = false
+            set(v) {
+                field = v
+                invalidate()
+            }
+
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         init {
@@ -1035,8 +1142,8 @@ class ThemePanel(
             canvas.drawCircle(cx, cy, dip(11).toFloat(), paint)
             // 焦点框
             if (isFocused) {
-                paint.strokeWidth = dip(2).toFloat()
-                paint.color = 0xFF4A90D9.toInt()
+                paint.strokeWidth = dip(if (adjusting) 4 else 2).toFloat()
+                paint.color = if (adjusting) 0xFF7DBBFF.toInt() else 0xFF4A90D9.toInt()
                 canvas.drawRoundRect(
                     dip(1).toFloat(), dip(1).toFloat(),
                     width - dip(1).toFloat(), height - dip(1).toFloat(),
@@ -1060,6 +1167,12 @@ class ThemePanel(
         var value = 1f
             private set
 
+        var adjusting = false
+            set(v) {
+                field = v
+                invalidate()
+            }
+
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         init {
@@ -1080,6 +1193,13 @@ class ThemePanel(
             hue = hsv[0]
             sat = hsv[1]
             value = hsv[2].coerceIn(0.05f, 1f)
+            invalidate()
+        }
+
+        /** 只更新底色（色相/饱和度），保持当前明度 */
+        fun setHueSat(h: Float, s: Float) {
+            hue = h
+            sat = s
             invalidate()
         }
 
@@ -1111,8 +1231,8 @@ class ThemePanel(
             paint.strokeWidth = dip(1).toFloat()
             canvas.drawLine(l - dip(3), cy + dip(2), r + dip(3), cy + dip(2), paint)
             if (isFocused) {
-                paint.strokeWidth = dip(2).toFloat()
-                paint.color = 0xFF4A90D9.toInt()
+                paint.strokeWidth = dip(if (adjusting) 4 else 2).toFloat()
+                paint.color = if (adjusting) 0xFF7DBBFF.toInt() else 0xFF4A90D9.toInt()
                 canvas.drawRoundRect(
                     dip(1).toFloat(), dip(1).toFloat(),
                     width - dip(1).toFloat(), height - dip(1).toFloat(),

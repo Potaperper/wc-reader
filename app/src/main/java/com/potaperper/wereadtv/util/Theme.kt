@@ -10,15 +10,36 @@ import android.graphics.Color
 object Theme {
     const val DEFAULT_BG = 0xFF161616.toInt()
 
-    /** 预设背景色：3 个浅色 + 3 个深色，按阅读器习惯排序 */
+    /** 预设背景色：浅色 + 深色，最后一个可替换为用户保存的自定义色 */
     val PRESETS = linkedMapOf(
         "纸白" to 0xFFFFFFFF.toInt(),
         "米黄" to 0xFFF5ECD8.toInt(),
         "护眼绿" to 0xFFCCE8CF.toInt(),
         "夜灰" to 0xFF2B2B2B.toInt(),
-        "墨黑" to 0xFF141414.toInt(),
         "纯黑" to 0xFF000000.toInt(),
     )
+
+    /** 用户保存的自定义颜色（替代原来固定的「墨黑」格） */
+    fun customColor(ctx: Context): Int = prefs(ctx).getInt("customBgColor", 0xFF141414.toInt())
+    fun setCustomColor(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("customBgColor", v).apply()
+    }
+
+    // ---------- 阅读字体 ----------
+
+    /** 字体选项：key → 显示名 */
+    val FONTS = listOf(
+        "system" to "系统默认",
+        "serif" to "思源宋体",
+        "kai" to "霞鹜文楷",
+        "xihei" to "霞鹜新晰黑",
+        "mono" to "等宽字体",
+    )
+
+    fun readerFont(ctx: Context): String = prefs(ctx).getString("readerFont", "system") ?: "system"
+    fun setReaderFont(ctx: Context, v: String) {
+        prefs(ctx).edit().putString("readerFont", v).apply()
+    }
 
     // ---------- 阅读偏好 ----------
 
@@ -75,7 +96,7 @@ object Theme {
         CORNER_CHAPTER_PERCENT to "本章进度",
         CORNER_BOOK_PERCENT to "全书进度",
         CORNER_BOOK to "书名",
-        CORNER_NONE to "不显示",
+        CORNER_NONE to "无",
     )
 
     /** corner: 0=左上 1=右上 2=左下 3=右下 */
@@ -132,12 +153,11 @@ object Theme {
         prefs(ctx).edit().putString("ignoredUpdateVersion", v).apply()
     }
 
-    /** 阅读正文颜色（考虑颜色覆盖与深浅设置） */
+    /** 阅读正文颜色：暗黑模式固定浅灰，否则自动前景色 + 浓淡 */
     fun readerTextColor(ctx: Context): Int {
-        val o = textColorOverride(ctx)
-        val bg = bgColor(ctx)
-        val base = if (o != -1) o else fgColor(bg)
-        return applyBrightness(base, bg, textBrightness(ctx))
+        if (darkMode(ctx)) return 0xFFBFBFBF.toInt()
+        val bg = savedBgColor(ctx)
+        return applyBrightness(fgColor(bg), bg, textBrightness(ctx))
     }
 
     /** 按百分比把文字颜色向背景混合：100 = 原色，30 = 更接近背景 */
@@ -153,9 +173,14 @@ object Theme {
     fun fontPx(ctx: Context): Float = prefs(ctx).getFloat("fontSize", 22f)
     fun setFontPx(ctx: Context, v: Float) { prefs(ctx).edit().putFloat("fontSize", v).apply() }
 
-    fun bgColor(ctx: Context): Int =
+    /** 用户保存的背景色（不受暗黑模式影响） */
+    fun savedBgColor(ctx: Context): Int =
         ctx.getSharedPreferences("weread", Context.MODE_PRIVATE)
             .getInt("bgColor", DEFAULT_BG)
+
+    /** 实际生效的背景色：暗黑模式开启时为纯黑 */
+    fun bgColor(ctx: Context): Int =
+        if (darkMode(ctx)) 0xFF000000.toInt() else savedBgColor(ctx)
 
     fun setBgColor(ctx: Context, color: Int) {
         ctx.getSharedPreferences("weread", Context.MODE_PRIVATE)

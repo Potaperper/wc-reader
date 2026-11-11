@@ -33,8 +33,10 @@ VSCode 上的 [TouchFish](https://github.com/ylw1997/touchFish) 插件把微信�
 - Cookie 自动续期（长期不用掉登录）
 - 章节预加载（翻章基本无等待）
 - 书内注释：支持行内图片注释与章尾 `[n]` 锚点注释——正文只显示上标序号，长按 OK 或顶栏「注释」查看全文
-- 主题：6 种预设色 + 连续色盘（色相/饱和度/明度滑块）+ 十六进制色值输入 + 一键暗黑模式
-- 排版：字号（1px 步进）、文字颜色与深浅、行距、左右/上下页边距、翻页方式（平滑/瞬时）、翻页方向（左右/上下）、长按行为
+- 主题：5 种预设色 + 1 个自定义保存色 + 连续色盘（色相/饱和度/明度）+ 十六进制色值输入
+- 暗黑模式：独立的纯黑 + 浅灰配色，开关不影响已保存的背景色
+- 字体：内置思源宋体、霞鹜文楷、霞鹜新晰黑（均为 SIL OFL 开源字体），可另选系统默认/等宽
+- 排版：字号（1px 步进）、字体颜色浓淡、行距、左右/上下页边距、翻页方式（平滑/瞬时）、翻页方向（左右/上下）、长按行为
 - 阅读页四角信息：时间 / 章节号 / 本页页数 / 本章进度 / 全书进度 / 书名，四个角可分别设置
 - 目录快速跳跃：长按方向键达到设定时间后进入快速模式，每次跳过可配置的章节数
 - 自动检查更新：启动时检查 GitHub Releases，可直接下载安装（带进度条），支持忽略版本 / 关闭检查
@@ -86,6 +88,14 @@ gradle assembleDebug
 
 - [ylw1997/touchFish](https://github.com/ylw1997/touchFish) — 微信读书接口逆向、请求签名与章节解密算法均来自该项目（MIT License）
 - [truefedex/tv-bro](https://github.com/truefedex/tv-bro) — Android TV 遥控器交互参考
+
+## 字体许可
+
+内置阅读字体均为 SIL Open Font License 1.1 开源字体：
+
+- [思源宋体 / Noto Serif SC](https://github.com/notofonts/noto-cjk) — SIL OFL 1.1
+- [霞鹜文楷 Lite](https://github.com/lxgw/LxgwWenKai-Lite) — SIL OFL 1.1
+- [霞鹜新晰黑](https://github.com/lxgw/LxgwNeoXiHei) — SIL OFL 1.1
 
 ## 免责声明
 

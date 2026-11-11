@@ -43,6 +43,9 @@ class ReaderView(
 <style>
 html,body{margin:0;padding:0;background:${Theme.toHex(bg)};height:100%;overflow:hidden;}
 #viewport{position:fixed;inset:0;overflow:hidden;}
+@font-face{font-family:'WC-Serif';src:url('https://wc-reader.local/fonts/noto_serif_sc.woff2');}
+@font-face{font-family:'WC-Kai';src:url('https://wc-reader.local/fonts/lxgw_wenkai.woff2');}
+@font-face{font-family:'WC-XiHei';src:url('https://wc-reader.local/fonts/lxgw_xihei.woff2');}
 #pager{
   height:100%;box-sizing:border-box;
   color:${Theme.toHex(fg)};
@@ -116,6 +119,13 @@ window.setZoom = function(fontPx){
   pagerEl().style.fontSize = fontPx + 'px';
   window.__page = 0;
   requestAnimationFrame(function(){ requestAnimationFrame(function(){ goTo(0, true); }); });
+};
+window.setFontFamily = function(family){
+  var st = document.getElementById('wr-font');
+  if (!st) { st = document.createElement('style'); st.id = 'wr-font'; document.head.appendChild(st); }
+  st.textContent = family ? ('#pager, #pager *{font-family:' + family + ' !important;}') : '';
+  pagerEl().style.fontFamily = family || '';
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ relayout(); goTo(window.__page, true); }); });
 };
 window.setLayoutPrefs = function(lhRatio, marginPx, marginYPx, instant){
   var pager = pagerEl();
@@ -571,7 +581,33 @@ function fixSrc(el, base){
                     pageLoaded = true
                     applyZoom()
                     applyLayoutPrefs()
+                    applyFont()
                     pendingContent?.let { (b, s) -> deliver(b, s) }
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                ): android.webkit.WebResourceResponse? {
+                    val u = request?.url?.toString() ?: return null
+                    if (!u.startsWith("https://wc-reader.local/fonts/")) return null
+                    val name = u.substringAfterLast('/')
+                    return try {
+                        val stream = activity.assets.open("fonts/$name")
+                        val mime = when {
+                            name.endsWith(".woff2") -> "font/woff2"
+                            name.endsWith(".woff") -> "font/woff"
+                            name.endsWith(".otf") -> "font/otf"
+                            else -> "font/ttf"
+                        }
+                        android.webkit.WebResourceResponse(
+                            mime, null, stream,
+                        ).apply {
+                            responseHeaders = mapOf("Access-Control-Allow-Origin" to "*")
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
                 }
             }
             webChromeClient = object : WebChromeClient() {
@@ -876,6 +912,18 @@ function fixSrc(el, base){
         mainHandler.postDelayed({ refreshHud() }, 350)
     }
 
+    /** 应用阅读字体（系统/思源宋体/霞鹜文楷/得意黑/等宽） */
+    fun applyFont() {
+        val family = when (Theme.readerFont(activity)) {
+            "serif" -> "'WC-Serif', serif"
+            "kai" -> "'WC-Kai', serif"
+            "xihei" -> "'WC-XiHei', sans-serif"
+            "mono" -> "monospace"
+            else -> ""
+        }
+        webView.evaluateJavascript("window.setFontFamily(${jsStr(family)})", null)
+    }
+
     fun applyTheme() {
         val bg = Theme.bgColor(activity)
         val fg = Theme.readerTextColor(activity)
@@ -907,18 +955,11 @@ function fixSrc(el, base){
     ).format(java.util.Date())
 
     fun refreshHudVisibility() {
-        val show = Theme.showCornerInfo(activity)
-        val v = if (show) VISIBLE else GONE
-        hudTopLeft.visibility = v
-        hudTopRight.visibility = v
-        hudBottomLeft.visibility = v
-        hudBottomRight.visibility = v
-        if (show) refreshHud()
+        refreshHud()
     }
 
     /** 向 WebView 询问当前页/总页数，刷新四角信息 */
     private fun refreshHud() {
-        if (!Theme.showCornerInfo(activity)) return
         webView.evaluateJavascript("window.pageInfo()") { info ->
             val raw = info?.trim()?.trim('"') ?: return@evaluateJavascript
             val parts = raw.split(",")
@@ -938,7 +979,6 @@ function fixSrc(el, base){
     }
 
     private fun setCorner(v: TextView, corner: Int, page: Int, total: Int) {
-        if (!Theme.showCornerInfo(activity)) { v.visibility = GONE; return }
         val chTotal = chapters.size.coerceAtLeast(1)
         val pages = total.coerceAtLeast(1)
         val overall = ((currentChapterIdx + (page + 1f) / pages) / chTotal * 100f)

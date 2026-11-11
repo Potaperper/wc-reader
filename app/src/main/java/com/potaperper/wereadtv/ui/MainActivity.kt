@@ -140,6 +140,19 @@ class MainActivity : Activity() {
         readerView?.refreshHudVisibility()
     }
 
+    /** 阅读字体变化 */
+    fun onFontChanged() {
+        readerView?.applyFont()
+    }
+
+    /** 暗黑模式切换：不修改用户颜色，只刷新实际生效的配色 */
+    fun onDarkModeChanged() {
+        val bg = Theme.bgColor(this)
+        shelfView?.setBackgroundColor(bg)
+        shelfView?.refreshTheme()
+        readerView?.applyTheme()
+    }
+
     // ---------- 生命周期 ----------
 
     override fun onCreate(savedInstanceState: Bundle?) {
