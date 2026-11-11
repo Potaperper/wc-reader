@@ -46,6 +46,109 @@ object Theme {
     fun longPressJump(ctx: Context): Boolean = prefs(ctx).getBoolean("longPressJump", true)
     fun setLongPressJump(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean("longPressJump", v).apply() }
 
+    /** 正文文字颜色覆盖：-1 表示跟随背景自动 */
+    fun textColorOverride(ctx: Context): Int = prefs(ctx).getInt("textColorOverride", -1)
+    fun setTextColorOverride(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("textColorOverride", v).apply()
+    }
+
+    /** 阅读页四角信息显示开关 */
+    fun showCornerInfo(ctx: Context): Boolean = prefs(ctx).getBoolean("cornerInfo", true)
+    fun setShowCornerInfo(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("cornerInfo", v).apply()
+    }
+
+    // ---------- 四角信息内容 ----------
+
+    const val CORNER_TIME = "time"
+    const val CORNER_CHAPTER = "chapter"
+    const val CORNER_PAGES = "pages"
+    const val CORNER_CHAPTER_PERCENT = "chapterPercent"
+    const val CORNER_BOOK_PERCENT = "bookPercent"
+    const val CORNER_BOOK = "book"
+    const val CORNER_NONE = "none"
+
+    val CORNER_MODES = listOf(
+        CORNER_TIME to "时间",
+        CORNER_CHAPTER to "章节号",
+        CORNER_PAGES to "本页/总页",
+        CORNER_CHAPTER_PERCENT to "本章进度",
+        CORNER_BOOK_PERCENT to "全书进度",
+        CORNER_BOOK to "书名",
+        CORNER_NONE to "不显示",
+    )
+
+    /** corner: 0=左上 1=右上 2=左下 3=右下 */
+    fun cornerMode(ctx: Context, corner: Int): String {
+        val def = when (corner) {
+            0 -> CORNER_TIME
+            1 -> CORNER_CHAPTER
+            2 -> CORNER_BOOK
+            else -> CORNER_BOOK_PERCENT
+        }
+        return prefs(ctx).getString("corner_$corner", def) ?: def
+    }
+
+    fun setCornerMode(ctx: Context, corner: Int, mode: String) {
+        prefs(ctx).edit().putString("corner_$corner", mode).apply()
+    }
+
+    // ---------- 额外功能 ----------
+
+    /** 目录长按多久进入快速跳跃（秒） */
+    fun fastJumpSec(ctx: Context): Int = prefs(ctx).getInt("fastJumpSec", 10)
+    fun setFastJumpSec(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("fastJumpSec", v.coerceIn(2, 30)).apply()
+    }
+
+    /** 快速跳跃模式下每次跳过的章节数 */
+    fun fastJumpChapters(ctx: Context): Int = prefs(ctx).getInt("fastJumpChapters", 100)
+    fun setFastJumpChapters(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("fastJumpChapters", v.coerceIn(10, 1000)).apply()
+    }
+
+    /** 正文深浅（30-100，100 = 原色） */
+    fun textBrightness(ctx: Context): Int = prefs(ctx).getInt("textBrightness", 100)
+    fun setTextBrightness(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("textBrightness", v.coerceIn(30, 100)).apply()
+    }
+
+    /** 暗黑模式（纯黑背景 + 浅灰字） */
+    fun darkMode(ctx: Context): Boolean = prefs(ctx).getBoolean("darkMode", false)
+    fun setDarkMode(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("darkMode", v).apply()
+    }
+
+    /** 启动时自动检查更新 */
+    fun autoCheckUpdate(ctx: Context): Boolean = prefs(ctx).getBoolean("autoCheckUpdate", true)
+    fun setAutoCheckUpdate(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("autoCheckUpdate", v).apply()
+    }
+
+    /** 已忽略的版本（不再提示该版本） */
+    fun ignoredUpdateVersion(ctx: Context): String =
+        prefs(ctx).getString("ignoredUpdateVersion", "") ?: ""
+    fun setIgnoredUpdateVersion(ctx: Context, v: String) {
+        prefs(ctx).edit().putString("ignoredUpdateVersion", v).apply()
+    }
+
+    /** 阅读正文颜色（考虑颜色覆盖与深浅设置） */
+    fun readerTextColor(ctx: Context): Int {
+        val o = textColorOverride(ctx)
+        val bg = bgColor(ctx)
+        val base = if (o != -1) o else fgColor(bg)
+        return applyBrightness(base, bg, textBrightness(ctx))
+    }
+
+    /** 按百分比把文字颜色向背景混合：100 = 原色，30 = 更接近背景 */
+    fun applyBrightness(fg: Int, bg: Int, percent: Int): Int {
+        val t = percent.coerceIn(0, 100) / 100f
+        val r = (Color.red(fg) * t + Color.red(bg) * (1 - t)).toInt()
+        val g = (Color.green(fg) * t + Color.green(bg) * (1 - t)).toInt()
+        val b = (Color.blue(fg) * t + Color.blue(bg) * (1 - t)).toInt()
+        return Color.rgb(r, g, b)
+    }
+
     /** 阅读字号（px），与 MainActivity.fontSizeSteps 配套 */
     fun fontPx(ctx: Context): Float = prefs(ctx).getFloat("fontSize", 22f)
     fun setFontPx(ctx: Context, v: Float) { prefs(ctx).edit().putFloat("fontSize", v).apply() }

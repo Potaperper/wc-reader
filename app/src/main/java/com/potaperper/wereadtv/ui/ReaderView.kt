@@ -1,4 +1,4 @@
-package com.potaperper.wereadtv.ui
+﻿package com.potaperper.wereadtv.ui
 
 import android.annotation.SuppressLint
 import android.graphics.Color
@@ -105,6 +105,12 @@ function goTo(p, instant){
 }
 window.tryNext = function(){ relayout(); if (window.__page >= window.__totalPages - 1) return false; goTo(window.__page + 1); return true; };
 window.tryPrev = function(){ relayout(); if (window.__page <= 0) return false; goTo(window.__page - 1); return true; };
+window.gotoLast = function(){ relayout(); goTo(window.__totalPages - 1, true); };
+window.gotoFraction = function(f){
+  relayout();
+  var p = Math.round((window.__totalPages - 1) * Math.max(0, Math.min(1, f)));
+  goTo(p, true);
+};
 window.pageInfo = function(){ return window.__page + ',' + window.__totalPages; };
 window.setZoom = function(fontPx){
   pagerEl().style.fontSize = fontPx + 'px';
@@ -237,7 +243,6 @@ function fixSrc(el, base){
 </script>
 </head><body>
 <div id='viewport'><div id='pager'></div></div>
-<div id='hud' style='position:fixed;right:20px;bottom:14px;font-size:14px;opacity:.55;color:${Theme.toHex(Theme.secondaryColor(bg))};'></div>
 </body></html>
 """.trimIndent()
     }
@@ -246,6 +251,11 @@ function fixSrc(el, base){
     private val topBar: FrameLayout
     private val topBarHint: TextView
     private val titleText: TextView
+    private val hudTopLeft: TextView
+    private val hudTopRight: TextView
+    private val hudBottomLeft: TextView
+    private val hudBottomRight: TextView
+    private val fastJumpBanner: TextView
     private val catalogOverlay: FrameLayout
     private val catalogList: ListView
     private val catalogAdapter = CatalogAdapter()
@@ -268,6 +278,22 @@ function fixSrc(el, base){
 
     private var loadSeq = 0
     fun currentLoadSeq(): Int = loadSeq
+
+    /** 跨章返回时：加载上一章后自动跳到该章最后一页 */
+    private var pendingLastPage = false
+
+    /** 目录快速跳跃模式（长按方向键触发，每次 100 章） */
+    private var catalogFastMode = false
+    private var catalogHoldAt = 0L
+    private var catalogFastLastAt = 0L
+
+    /** 四角信息的时钟 */
+    private val clockRunnable = object : Runnable {
+        override fun run() {
+            refreshHud()
+            mainHandler.postDelayed(this, 30_000)
+        }
+    }
 
     /** 顶栏显示时刻：用于双击返回判定 */
     private var topBarShownAt = 0L
@@ -320,7 +346,16 @@ function fixSrc(el, base){
         }
         if (catalogOverlay.visibility == VISIBLE) {
             if (event.keyCode == KeyEvent.KEYCODE_BACK && action == KeyEvent.ACTION_DOWN) {
-                toggleCatalog(false); return true
+                if (catalogFastMode) exitCatalogFastMode() else toggleCatalog(false)
+                return true
+            }
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP || event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (action == KeyEvent.ACTION_DOWN) {
+                    handleCatalogDirection(event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN)
+                } else {
+                    catalogHoldAt = 0L
+                }
+                return true
             }
             return super.dispatchKeyEvent(event)
         }
@@ -561,6 +596,32 @@ function fixSrc(el, base){
         }
         addView(contentWrap, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
+        // ---- 四角信息（时间 / 章节 / 书名 / 进度）----
+        fun hudText(g: Int): TextView = TextView(activity).apply {
+            textSize = 13f
+            setTextColor(Theme.secondaryColor(bg))
+            alpha = 0.72f
+            gravity = g
+            setPadding(dip(30), dip(16), dip(30), dip(16))
+            isFocusable = false
+            isClickable = false
+        }
+        hudTopLeft = hudText(Gravity.START)
+        hudTopRight = hudText(Gravity.END)
+        hudBottomLeft = hudText(Gravity.START)
+        hudBottomRight = hudText(Gravity.END)
+        val hudLayer = FrameLayout(activity).apply {
+            isClickable = false
+            isFocusable = false
+            addView(hudTopLeft, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START))
+            addView(hudTopRight, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END))
+            addView(hudBottomLeft, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START))
+            addView(hudBottomRight, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END))
+        }
+        addView(hudLayer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        refreshHudVisibility()
+        mainHandler.postDelayed(clockRunnable, 30_000)
+
         // ---- 目录浮层（书名独立置顶，不随章节滚动）----
         val catBg = if (Theme.isDark(bg)) 0xF0141414.toInt() else 0xF0FAF7F0.toInt()
         catalogTitle = TextView(activity).apply {
@@ -579,6 +640,12 @@ function fixSrc(el, base){
                 toggleCatalog(false)
                 loadChapter(position, 0)
             }
+        fastJumpBanner = TextView(activity).apply {
+            text = "长按 ↑↓ 10 秒：快速跳跃（100 章/次）"
+            textSize = 13f
+            setTextColor(Theme.secondaryColor(bg))
+            setPadding(dip(24), dip(10), dip(24), dip(16))
+        }
         catalogOverlay = FrameLayout(activity).apply {
             visibility = GONE
             setBackgroundColor(0x99000000.toInt())
@@ -589,6 +656,7 @@ function fixSrc(el, base){
                 addView(catalogList, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f,
                 ))
+                addView(fastJumpBanner)
             }, LayoutParams(dip(620), LayoutParams.MATCH_PARENT, Gravity.START))
             setOnClickListener { toggleCatalog(false) }
         }
@@ -664,7 +732,7 @@ function fixSrc(el, base){
         addView(topBar, LayoutParams(LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
 
         webView.loadDataWithBaseURL(
-            "https://weread.qq.com/", pageHtml(bg, Theme.fgColor(bg)), "text/html", "utf-8", null,
+            "https://weread.qq.com/", pageHtml(bg, Theme.readerTextColor(activity)), "text/html", "utf-8", null,
         )
     }
 
@@ -805,17 +873,24 @@ function fixSrc(el, base){
 
     fun applyZoom() {
         webView.evaluateJavascript("window.setZoom(${activity.fontSizeSp})", null)
+        mainHandler.postDelayed({ refreshHud() }, 350)
     }
 
     fun applyTheme() {
         val bg = Theme.bgColor(activity)
-        val fg = Theme.fgColor(bg)
+        val fg = Theme.readerTextColor(activity)
         setBackgroundColor(bg)
         topBar.setBackgroundColor(if (Theme.isDark(bg)) 0xF2181818.toInt() else 0xF2F2EDE2.toInt())
-        titleText.setTextColor(fg)
+        titleText.setTextColor(Theme.fgColor(bg))
+        val sec = Theme.secondaryColor(bg)
+        hudTopLeft.setTextColor(sec)
+        hudTopRight.setTextColor(sec)
+        hudBottomLeft.setTextColor(sec)
+        hudBottomRight.setTextColor(sec)
         webView.evaluateJavascript(
             "window.setTheme('${Theme.toHex(bg)}', '${Theme.toHex(fg)}')", null,
         )
+        refreshHudVisibility()
     }
 
     fun applyLayoutPrefs() {
@@ -823,6 +898,113 @@ function fixSrc(el, base){
             "window.setLayoutPrefs(${Theme.lineHeight(activity)}, ${Theme.marginPx(activity)}, ${Theme.marginYPx(activity)}, ${Theme.instantPage(activity)})",
             null,
         )
+    }
+
+    // ---------- 四角信息 ----------
+
+    private fun clockText(): String = java.text.SimpleDateFormat(
+        "HH:mm", java.util.Locale.getDefault(),
+    ).format(java.util.Date())
+
+    fun refreshHudVisibility() {
+        val show = Theme.showCornerInfo(activity)
+        val v = if (show) VISIBLE else GONE
+        hudTopLeft.visibility = v
+        hudTopRight.visibility = v
+        hudBottomLeft.visibility = v
+        hudBottomRight.visibility = v
+        if (show) refreshHud()
+    }
+
+    /** 向 WebView 询问当前页/总页数，刷新四角信息 */
+    private fun refreshHud() {
+        if (!Theme.showCornerInfo(activity)) return
+        webView.evaluateJavascript("window.pageInfo()") { info ->
+            val raw = info?.trim()?.trim('"') ?: return@evaluateJavascript
+            val parts = raw.split(",")
+            if (parts.size == 2) {
+                val page = parts[0].trim().toIntOrNull() ?: 0
+                val total = parts[1].trim().toIntOrNull() ?: 1
+                updateHud(page, total)
+            }
+        }
+    }
+
+    private fun updateHud(page: Int, total: Int) {
+        setCorner(hudTopLeft, 0, page, total)
+        setCorner(hudTopRight, 1, page, total)
+        setCorner(hudBottomLeft, 2, page, total)
+        setCorner(hudBottomRight, 3, page, total)
+    }
+
+    private fun setCorner(v: TextView, corner: Int, page: Int, total: Int) {
+        if (!Theme.showCornerInfo(activity)) { v.visibility = GONE; return }
+        val chTotal = chapters.size.coerceAtLeast(1)
+        val pages = total.coerceAtLeast(1)
+        val overall = ((currentChapterIdx + (page + 1f) / pages) / chTotal * 100f)
+            .toInt().coerceIn(0, 100)
+        val chapterPct = ((page + 1) * 100 / pages).coerceIn(0, 100)
+        val text = when (Theme.cornerMode(activity, corner)) {
+            Theme.CORNER_TIME -> clockText()
+            Theme.CORNER_CHAPTER -> "第 ${currentChapterIdx + 1} / $chTotal 章"
+            Theme.CORNER_PAGES -> "第 ${page + 1} / $pages 页"
+            Theme.CORNER_CHAPTER_PERCENT -> "本章 $chapterPct%"
+            Theme.CORNER_BOOK_PERCENT -> "全书 $overall%"
+            Theme.CORNER_BOOK -> book.title
+            else -> ""
+        }
+        v.text = text
+        v.visibility = if (text.isEmpty()) GONE else VISIBLE
+    }
+
+    // ---------- 目录快速跳跃 ----------
+
+    private fun handleCatalogDirection(down: Boolean) {
+        val now = System.currentTimeMillis()
+        val step = if (down) 1 else -1
+        if (catalogHoldAt == 0L) catalogHoldAt = now
+        if (!catalogFastMode && now - catalogHoldAt >= Theme.fastJumpSec(activity) * 1000L) {
+            enterCatalogFastMode()
+        }
+        if (catalogFastMode) {
+            if (now - catalogFastLastAt < 150) return
+            catalogFastLastAt = now
+            moveCatalogSelection(step * Theme.fastJumpChapters(activity))
+        } else {
+            if (now - catalogFastLastAt < 60) return
+            catalogFastLastAt = now
+            moveCatalogSelection(step)
+        }
+    }
+
+    private fun moveCatalogSelection(delta: Int) {
+        if (chapters.isEmpty()) return
+        val cur = catalogList.selectedItemPosition.takeIf { it >= 0 } ?: currentChapterIdx
+        val next = (cur + delta).coerceIn(0, chapters.size - 1)
+        catalogList.setSelection(next)
+        catalogList.requestFocus()
+    }
+
+    private fun enterCatalogFastMode() {
+        catalogFastMode = true
+        fastJumpBanner.text =
+            "快速跳跃：每次 ${Theme.fastJumpChapters(activity)} 章 · 返回键退出"
+        fastJumpBanner.setTextColor(Theme.accentColor(Theme.bgColor(activity)))
+        activity.showToast(
+            "快速跳跃模式：每次 ${Theme.fastJumpChapters(activity)} 章，返回键退出",
+        )
+    }
+
+    private fun exitCatalogFastMode() {
+        catalogFastMode = false
+        resetFastBanner()
+        activity.showToast("已退出快速跳跃")
+    }
+
+    private fun resetFastBanner() {
+        fastJumpBanner.text =
+            "长按 ↑↓ ${Theme.fastJumpSec(activity)} 秒：快速跳跃（${Theme.fastJumpChapters(activity)} 章/次）"
+        fastJumpBanner.setTextColor(Theme.secondaryColor(Theme.bgColor(activity)))
     }
 
     // ---------- 遥控器 ----------
@@ -848,6 +1030,8 @@ function fixSrc(el, base){
             mainHandler.post {
                 val isTrue = moved?.contains("true") == true
                 if (!isTrue) {
+                    // 向前翻到章首：加载上一章后跳到其最后一页，而不是上一章开头
+                    if (dir < 0 && currentChapterIdx > 0) pendingLastPage = true
                     jumpChapter(dir, toast = false)
                 } else {
                     checkChapterEnd()
@@ -863,6 +1047,7 @@ function fixSrc(el, base){
             if (parts.size == 2) {
                 val page = parts[0].trim().toIntOrNull() ?: 0
                 val total = parts[1].trim().toIntOrNull() ?: 1
+                updateHud(page, total)
                 if (total > 0 && page >= total - 1) saveProgress()
             }
         }
@@ -895,8 +1080,10 @@ function fixSrc(el, base){
     // ---------- 目录 ----------
 
     private fun toggleCatalog(show: Boolean) {
+        if (!show) exitCatalogFastModeSilently()
         catalogOverlay.visibility = if (show) VISIBLE else GONE
         if (show) {
+            resetFastBanner()
             catalogList.post {
                 catalogList.setSelection(currentChapterIdx)
                 catalogList.requestFocus()
@@ -904,6 +1091,12 @@ function fixSrc(el, base){
         } else {
             webView.requestFocus()
         }
+    }
+
+    private fun exitCatalogFastModeSilently() {
+        catalogFastMode = false
+        catalogHoldAt = 0L
+        resetFastBanner()
     }
 
     inner class CatalogAdapter : BaseAdapter() {
@@ -982,7 +1175,15 @@ function fixSrc(el, base){
     inner class Bridge {
         @JavascriptInterface
         fun onRendered(totalPages: Int) {
-            mainHandler.post { loadingText.visibility = GONE }
+            mainHandler.post {
+                loadingText.visibility = GONE
+                if (pendingLastPage) {
+                    pendingLastPage = false
+                    webView.evaluateJavascript("window.gotoLast()") { refreshHud() }
+                } else {
+                    refreshHud()
+                }
+            }
         }
     }
 
@@ -1017,6 +1218,7 @@ function fixSrc(el, base){
     fun release() {
         if (released) return
         released = true
+        mainHandler.removeCallbacks(clockRunnable)
         webView.apply {
             stopLoading()
             (parent as? ViewGroup)?.removeView(this)

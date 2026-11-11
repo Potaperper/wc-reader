@@ -67,7 +67,9 @@ class MainActivity : Activity() {
     var fontSizeSp: Float
         get() = Theme.fontPx(this)
         set(value) { Theme.setFontPx(this, value) }
-    val fontSizeSteps = floatArrayOf(16f, 18f, 20f, 22f, 26f, 30f, 34f, 40f)
+
+    /** 1px 步进，14–40px */
+    val fontSizeSteps: FloatArray = FloatArray(27) { 14f + it }
     private var settingsDialog: android.app.Dialog? = null
 
     /** 主界面（书架）也响应设置键 */
@@ -79,16 +81,18 @@ class MainActivity : Activity() {
 
     fun cycleFontSize() {
         val idx = fontSizeSteps.indexOfFirst { it == fontSizeSp }
-        fontSizeSp = fontSizeSteps[(idx + 1).mod(fontSizeSteps.size)]
+        val next = if (idx < 0) 0 else (idx + 1) % fontSizeSteps.size
+        fontSizeSp = fontSizeSteps[next]
         readerView?.applyZoom()
         showToast("字号 ${fontSizeSp.toInt()}")
     }
 
-    /** 排版设置里按步进调字号 */
+    /** 排版设置里按步进调字号（1px/步） */
     fun stepFontSize(delta: Int) {
-        val idx = fontSizeSteps.indexOfFirst { it == fontSizeSp }
-        val next = (idx + delta).coerceIn(0, fontSizeSteps.size - 1)
-        fontSizeSp = fontSizeSteps[next]
+        val exact = fontSizeSteps.indexOfFirst { it == fontSizeSp }
+        val idx = if (exact >= 0) exact else fontSizeSteps.indexOfFirst { it > fontSizeSp }
+            .let { if (it < 0) fontSizeSteps.size - 1 else it }
+        fontSizeSp = fontSizeSteps[(idx + delta).coerceIn(0, fontSizeSteps.size - 1)]
         readerView?.applyZoom()
     }
 
@@ -126,6 +130,16 @@ class MainActivity : Activity() {
         readerView?.applyLayoutPrefs()
     }
 
+    /** 正文字体颜色变化 */
+    fun onTextColorChanged() {
+        readerView?.applyTheme()
+    }
+
+    /** 四角信息显示开关变化 */
+    fun onCornerInfoChanged() {
+        readerView?.refreshHudVisibility()
+    }
+
     // ---------- 生命周期 ----------
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -133,6 +147,9 @@ class MainActivity : Activity() {
 
         root = FrameLayout(this)
         setContentView(root)
+
+        // 更新检查与登录状态无关：先在后台悄悄检查
+        maybeAutoCheckUpdate()
 
         if (api.hasCookie) {
             showShelf()
@@ -148,6 +165,18 @@ class MainActivity : Activity() {
         renewalJob?.cancel()
         scope.cancel()
         readerView?.release()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 从“未知来源安装”设置页返回后，若已授权则自动继续安装
+        val pending = pendingInstallApk
+        if (pending != null && pending.exists() &&
+            (android.os.Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())
+        ) {
+            pendingInstallApk = null
+            mainHandler.postDelayed({ installApk(pending) }, 400)
+        }
     }
 
     override fun onPause() {
@@ -246,6 +275,7 @@ class MainActivity : Activity() {
                             showToast("登录成功")
                             showShelf()
                             refreshShelf()
+                            startCookieRenewal()
                             return@launch
                         }
                         is WeReadApi.QrPollResult.Waiting -> {
@@ -381,6 +411,108 @@ class MainActivity : Activity() {
         }
     }
 
+    // ---------- 自动更新 ----------
+
+    private var updateDialog: android.app.Dialog? = null
+
+    /** 启动时自动检查更新（可在“关于”页关闭） */
+    fun maybeAutoCheckUpdate() {
+        if (!Theme.autoCheckUpdate(this)) return
+        scope.launch {
+            val info = withContext(Dispatchers.IO) {
+                runCatching { com.potaperper.wereadtv.update.UpdateManager.fetchLatest() }.getOrNull()
+            } ?: return@launch
+            if (!com.potaperper.wereadtv.update.UpdateManager.isNewer(info.version, currentVersion())) {
+                return@launch
+            }
+            if (info.version == Theme.ignoredUpdateVersion(this@MainActivity)) return@launch
+            showUpdateDialog(info)
+        }
+    }
+
+    fun showUpdateDialog(info: com.potaperper.wereadtv.update.UpdateInfo) {
+        if (updateDialog != null) return
+        lateinit var dialogRef: android.app.Dialog
+        val view = UpdateDialog(
+            this, info,
+            onDownload = { startUpdateDownload(info, dialogRef) },
+            onIgnoreVersion = {
+                Theme.setIgnoredUpdateVersion(this, info.version)
+                showToast("已忽略 ${info.tag}")
+                dialogRef.dismiss()
+            },
+            onDisableAutoCheck = {
+                Theme.setAutoCheckUpdate(this, false)
+                showToast("已关闭自动检查更新")
+                dialogRef.dismiss()
+            },
+            onDismiss = { dialogRef.dismiss() },
+        )
+        val dialog = android.app.Dialog(
+            this, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen,
+        )
+        dialog.setContentView(view)
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setOnDismissListener { updateDialog = null }
+        dialogRef = dialog
+        updateDialog = dialog
+        dialog.show()
+    }
+
+    private fun startUpdateDownload(
+        info: com.potaperper.wereadtv.update.UpdateInfo,
+        dialog: android.app.Dialog,
+    ) {
+        val view = dialog.findViewById<android.view.View>(android.R.id.content)
+        val updateView = (view as? android.view.ViewGroup)?.getChildAt(0) as? UpdateDialog
+        ioScope.launch {
+            val file = com.potaperper.wereadtv.update.UpdateManager.download(this@MainActivity, info) { pct ->
+                mainHandler.post { updateView?.setProgress(pct) }
+            }
+            if (file != null) {
+                mainHandler.post {
+                    dialog.dismiss()
+                    installApk(file)
+                }
+            } else {
+                mainHandler.post { updateView?.setDownloadFailed("下载失败，请检查网络后重试") }
+            }
+        }
+    }
+
+    /** 等待安装权限授予后自动继续安装的 APK */
+    private var pendingInstallApk: java.io.File? = null
+
+    /** 拉起系统安装器 */
+    private fun installApk(file: java.io.File) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                pendingInstallApk = file
+                showToast("请允许 WC-reader 安装应用，返回后自动继续")
+                startActivity(
+                    android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        android.net.Uri.parse("package:$packageName"),
+                    ),
+                )
+                return
+            }
+            pendingInstallApk = null
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this, "$packageName.fileprovider", file,
+            )
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            showToast("无法启动安装器：${e.message}")
+        }
+    }
+
     // ---------- 账号 ----------
 
     /** 当前应用版本名 */
@@ -390,32 +522,23 @@ class MainActivity : Activity() {
         "?"
     }
 
-    /** 检查 GitHub Releases 是否有新版本（仅检查，不自动下载安装） */
+    /** 检查 GitHub Releases：有新版直接弹出下载对话框（带进度条） */
     fun checkForUpdate(onResult: (String) -> Unit) {
         scope.launch {
-            val msg = withContext(Dispatchers.IO) {
-                try {
-                    val conn = java.net.URL(
-                        "https://api.github.com/repos/Potaperper/wc-reader/releases/latest",
-                    ).openConnection() as java.net.HttpURLConnection
-                    conn.connectTimeout = 8000
-                    conn.readTimeout = 10000
-                    conn.setRequestProperty("User-Agent", "WC-reader")
-                    conn.setRequestProperty("Accept", "application/vnd.github+json")
-                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    val tag = Regex("\"tag_name\"\\s*:\\s*\"([^\"]+)\"")
-                        .find(text)?.groupValues?.get(1) ?: ""
-                    val cur = currentVersion()
-                    when {
-                        tag.isEmpty() -> "检查更新失败（无法获取版本信息）"
-                        tag.trimStart('v') == cur -> "已是最新版本 v$cur"
-                        else -> "发现新版本 $tag（当前 v$cur）\n可在项目主页下载"
-                    }
-                } catch (e: Exception) {
-                    "检查更新失败：${e.message}"
-                }
+            onResult("正在检查更新…")
+            val info = withContext(Dispatchers.IO) {
+                runCatching { com.potaperper.wereadtv.update.UpdateManager.fetchLatest() }.getOrNull()
             }
-            onResult(msg)
+            val cur = currentVersion()
+            if (info == null) {
+                onResult("检查更新失败，请检查网络")
+                return@launch
+            }
+            if (!com.potaperper.wereadtv.update.UpdateManager.isNewer(info.version, cur)) {
+                onResult("已是最新版本 v$cur")
+                return@launch
+            }
+            showUpdateDialog(info)
         }
     }
 

@@ -9,6 +9,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -28,8 +29,9 @@ class ThemePanel(
     companion object {
         private const val TAB_BG = 0
         private const val TAB_LAYOUT = 1
-        private const val TAB_ACCOUNT = 2
-        private const val TAB_ABOUT = 3
+        private const val TAB_EXTRA = 2
+        private const val TAB_ACCOUNT = 3
+        private const val TAB_ABOUT = 4
 
         // 统一强调色（与阅读器链接色一致）
         private const val ACCENT = 0xFF4A90D9.toInt()
@@ -44,10 +46,12 @@ class ThemePanel(
     private var tab = initialTab
     private lateinit var navBg: TextView
     private lateinit var navLayout: TextView
+    private lateinit var navExtra: TextView
     private lateinit var navAccount: TextView
     private lateinit var navAbout: TextView
     private lateinit var contentBg: ViewGroup
     private lateinit var contentLayout: ViewGroup
+    private lateinit var contentExtra: ViewGroup
     private lateinit var contentAccount: ViewGroup
     private lateinit var contentAbout: ViewGroup
 
@@ -59,6 +63,41 @@ class ThemePanel(
     private lateinit var pageModeLabel: TextView
     private lateinit var dirMapLabel: TextView
     private lateinit var longPressLabel: TextView
+    private lateinit var textColorLabel: TextView
+    private lateinit var textBrightnessLabel: TextView
+    private lateinit var cornerInfoLabel: TextView
+    private lateinit var cornerInfoLabel2: TextView
+    private lateinit var cornerTL: TextView
+    private lateinit var cornerTR: TextView
+    private lateinit var cornerBL: TextView
+    private lateinit var cornerBR: TextView
+    private lateinit var autoUpdateLabel: TextView
+
+    // ---- 额外功能控件 ----
+    private lateinit var fastJumpSecLabel: TextView
+    private lateinit var fastJumpChaptersLabel: TextView
+
+    // ---- 背景控件 ----
+    private lateinit var darkModeLabel: TextView
+    private lateinit var hueSatPad: HueSatPad
+    private lateinit var lightnessBar: LightnessBar
+    private lateinit var hexInput: EditText
+    private lateinit var hexApply: TextView
+
+    private var pickerHue = 210f
+    private var pickerSat = 0.5f
+    private var pickerVal = 1f
+
+    /** 正文字体颜色预设（-1 = 跟随背景自动） */
+    private val textColorOptions = listOf(
+        "自动" to -1,
+        "暖白" to 0xFFEAEAEE.toInt(),
+        "米黄" to 0xFFE3D7BE.toInt(),
+        "浅灰" to 0xFF9E9E9E.toInt(),
+        "墨黑" to 0xFF1A1A1A.toInt(),
+        "深棕" to 0xFF5B4636.toInt(),
+        "藏蓝" to 0xFF1F3A5F.toInt(),
+    )
 
     private var contentFocused = false
 
@@ -69,10 +108,12 @@ class ThemePanel(
 
         val navBgView = navItem("背景", TAB_BG)
         val navLayoutView = navItem("排版", TAB_LAYOUT)
+        val navExtraView = navItem("功能", TAB_EXTRA)
         val navAccountView = navItem("账号", TAB_ACCOUNT)
         val navAboutView = navItem("关于", TAB_ABOUT)
         navBg = navBgView
         navLayout = navLayoutView
+        navExtra = navExtraView
         navAccount = navAccountView
         navAbout = navAboutView
 
@@ -88,6 +129,7 @@ class ThemePanel(
             addView(navTitle)
             addView(navBgView)
             addView(navLayoutView)
+            addView(navExtraView)
             addView(navAccountView)
             addView(navAboutView)
         }
@@ -99,6 +141,7 @@ class ThemePanel(
 
         contentBg = buildBgContent()
         contentLayout = buildLayoutContent()
+        contentExtra = buildExtraContent()
         contentAccount = buildAccountContent()
         contentAbout = buildAboutContent()
 
@@ -106,6 +149,7 @@ class ThemePanel(
             setPadding(dip(36), dip(26), dip(36), dip(26))
             addView(contentBg, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(contentLayout, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(contentExtra, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(contentAccount, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(contentAbout, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
@@ -158,6 +202,7 @@ class ThemePanel(
         val items = listOf(
             navBg to TAB_BG,
             navLayout to TAB_LAYOUT,
+            navExtra to TAB_EXTRA,
             navAccount to TAB_ACCOUNT,
             navAbout to TAB_ABOUT,
         )
@@ -167,6 +212,7 @@ class ThemePanel(
             val name = when (idx) {
                 TAB_BG -> "背景"
                 TAB_LAYOUT -> "排版"
+                TAB_EXTRA -> "功能"
                 TAB_ACCOUNT -> "账号"
                 else -> "关于"
             }
@@ -198,16 +244,19 @@ class ThemePanel(
         tab = index
         contentBg.visibility = if (index == TAB_BG) VISIBLE else GONE
         contentLayout.visibility = if (index == TAB_LAYOUT) VISIBLE else GONE
+        contentExtra.visibility = if (index == TAB_EXTRA) VISIBLE else GONE
         contentAccount.visibility = if (index == TAB_ACCOUNT) VISIBLE else GONE
         contentAbout.visibility = if (index == TAB_ABOUT) VISIBLE else GONE
         refreshNavStyles()
     }
 
-    private val navItems: List<TextView> get() = listOf(navBg, navLayout, navAccount, navAbout)
+    private val navItems: List<TextView> get() =
+        listOf(navBg, navLayout, navExtra, navAccount, navAbout)
 
     // ---------- 背景内容 ----------
 
     private fun buildBgContent(): ViewGroup {
+        darkModeLabel = prefRow("暗黑模式")
         val swatchRow = LinearLayout(activity).apply {
             tag = "swatchRow"
             orientation = LinearLayout.HORIZONTAL
@@ -241,7 +290,7 @@ class ThemePanel(
                                 if (hasFocus) 0xFFFFFFFF.toInt() else swatchBorderColor(color),
                             )
                         }
-                        setOnClickListener { applyColor(color) }
+                        setOnClickListener { syncPicker(color); applyColor(color) }
                     })
                     addView(TextView(activity).apply {
                         text = name
@@ -256,28 +305,127 @@ class ThemePanel(
             }
         }
 
-        val palette = Palette2DView(activity).apply {
+        val initial = Theme.bgColor(activity)
+        hueSatPad = HueSatPad(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dip(220),
-            ).apply { topMargin = dip(8) }
-            onColorPicked = { applyColor(it) }
+                0, dip(210), 1f,
+            ).apply { marginEnd = dip(16) }
+            setColor(initial)
+            onPick = { h, s -> pickerHue = h; pickerSat = s; applyPickerColor() }
         }
+        lightnessBar = LightnessBar(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(dip(64), dip(210))
+            setHsv(initial)
+            onPick = { v -> pickerVal = v; hueSatPad.value = v; applyPickerColor() }
+        }
+        val pickerRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(hueSatPad)
+            addView(lightnessBar)
+        }
+
+        hexInput = EditText(activity).apply {
+            hint = "#RRGGBB"
+            setText(Theme.toHex(initial))
+            setTextColor(TEXT_MAIN)
+            setHintTextColor(TEXT_SUB)
+            textSize = 16f
+            isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            background = GradientDrawable().apply {
+                setColor(CARD_BG)
+                cornerRadius = dip(10).toFloat()
+                setStroke(dip(1), CARD_BORDER)
+            }
+            setPadding(dip(18), dip(10), dip(18), dip(10))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+            setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    postDelayed({
+                        val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                            as android.view.inputmethod.InputMethodManager
+                        imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                    }, 150)
+                }
+            }
+        }
+        val hexApplyBtn = actionButton("应用色值") { applyHexColor() }
+        hexApply = hexApplyBtn
 
         val col = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
             clipToPadding = false
             addView(sectionTitle("背景颜色"))
+            addView(darkModeLabel)
             addView(swatchRow)
             addView(space(dip(18)))
-            addView(sectionTitle("自定义颜色（色盘：上下左右调色）"))
-            addView(palette)
+            addView(sectionTitle("自定义颜色（左右选色相 · 上下调饱和）"))
+            addView(pickerRow)
+            addView(TextView(activity).apply {
+                text = "OK 在 色盘 → 深浅 → 色值 之间切换；深浅滑块位于色盘右侧"
+                textSize = 12f
+                setTextColor(TEXT_SUB)
+                setPadding(dip(4), dip(10), 0, dip(8))
+            })
+            addView(hexInput)
+            addView(space(dip(8)))
+            addView(hexApply)
         }
         return ScrollView(activity).apply {
             clipChildren = false
             clipToPadding = false
             addView(col)
         }
+    }
+
+    /** 把当前颜色同步到色盘 / 深浅滑块 / 色值输入框 */
+    private fun syncPicker(color: Int) {
+        if (!::hueSatPad.isInitialized) return
+        val hsv = FloatArray(3)
+        Color.colorToHSV(color, hsv)
+        pickerHue = hsv[0]
+        pickerSat = hsv[1]
+        pickerVal = hsv[2].coerceAtLeast(0.05f)
+        hueSatPad.setColor(color)
+        lightnessBar.setHsv(color)
+        hexInput.setText(Theme.toHex(color))
+    }
+
+    private fun applyPickerColor() {
+        val color = Color.HSVToColor(floatArrayOf(pickerHue, pickerSat, pickerVal))
+        hexInput.setText(Theme.toHex(color))
+        applyColor(color)
+    }
+
+    private fun applyHexColor() {
+        val raw = hexInput.text.toString().trim().removePrefix("#").trim()
+        if (raw.length != 6 || raw.toLongOrNull(16) == null) {
+            activity.showToast("请输入 6 位十六进制色值，例如 #4A90D9")
+            return
+        }
+        val color = (0xFF000000L or raw.toLong(16)).toInt()
+        syncPicker(color)
+        applyColor(color)
+    }
+
+    private fun toggleDarkMode() {
+        val on = !Theme.darkMode(activity)
+        Theme.setDarkMode(activity, on)
+        if (on) {
+            Theme.setBgColor(activity, 0xFF000000.toInt())
+            Theme.setTextColorOverride(activity, 0xFFB8B8B8.toInt())
+            Theme.setTextBrightness(activity, 100)
+        } else {
+            Theme.setBgColor(activity, Theme.DEFAULT_BG)
+            Theme.setTextColorOverride(activity, -1)
+        }
+        syncPicker(Theme.bgColor(activity))
+        refreshLayoutLabels()
+        applyColor(Theme.bgColor(activity), keepDarkMode = true)
+        activity.onTextColorChanged()
     }
 
     private fun swatchBorderColor(color: Int): Int =
@@ -287,9 +435,16 @@ class ThemePanel(
 
     private fun buildLayoutContent(): ViewGroup {
         fontSizeLabel = prefRow("字号")
+        textColorLabel = prefRow("文字颜色")
+        textBrightnessLabel = prefRow("文字深浅")
         lineHeightLabel = prefRow("行距")
         marginLabel = prefRow("左右边距")
         marginYLabel = prefRow("上下边距")
+        cornerInfoLabel = prefRow("四角信息")
+        cornerTL = prefRow("左上角")
+        cornerTR = prefRow("右上角")
+        cornerBL = prefRow("左下角")
+        cornerBR = prefRow("右下角")
         pageModeLabel = prefRow("翻页方式")
         dirMapLabel = prefRow("翻页方向")
         longPressLabel = prefRow("长按方向键")
@@ -297,11 +452,20 @@ class ThemePanel(
 
         val col = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            addView(sectionTitle("阅读排版"))
+            addView(sectionTitle("文字"))
             addView(fontSizeLabel)
+            addView(textColorLabel)
+            addView(textBrightnessLabel)
+            addView(sectionTitle("版式"))
             addView(lineHeightLabel)
             addView(marginLabel)
             addView(marginYLabel)
+            addView(sectionTitle("四角信息"))
+            addView(cornerInfoLabel)
+            addView(cornerTL)
+            addView(cornerTR)
+            addView(cornerBL)
+            addView(cornerBR)
             addView(space(dip(14)))
             addView(sectionTitle("翻页"))
             addView(pageModeLabel)
@@ -312,6 +476,40 @@ class ThemePanel(
                 text = "聚焦后用左右键调整，更改立即生效"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
+                setPadding(dip(4), dip(4), 0, 0)
+            })
+        }
+        return ScrollView(activity).apply { addView(col) }
+    }
+
+    // ---------- 额外功能内容 ----------
+
+    private fun buildExtraContent(): ViewGroup {
+        fastJumpSecLabel = prefRow("长按触发时间")
+        fastJumpChaptersLabel = prefRow("每次跳跃章数")
+        cornerInfoLabel2 = prefRow("四角信息")
+        refreshLayoutLabels()
+
+        val col = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(sectionTitle("目录快速跳跃"))
+            addView(fastJumpSecLabel)
+            addView(fastJumpChaptersLabel)
+            addView(TextView(activity).apply {
+                text = "在目录页按住上/下键达到设定时间后进入快速跳跃模式，" +
+                    "之后每按一下跳过设定的章节数，按返回键退出。"
+                textSize = 12f
+                setTextColor(TEXT_SUB)
+                setLineSpacing(dip(3).toFloat(), 1.15f)
+                setPadding(dip(4), dip(4), dip(4), dip(18))
+            })
+            addView(sectionTitle("阅读页"))
+            addView(cornerInfoLabel2)
+            addView(TextView(activity).apply {
+                text = "四角显示的具体内容（时间 / 章节号 / 页数 / 进度 / 书名）可在「排版」页逐个设置。"
+                textSize = 12f
+                setTextColor(TEXT_SUB)
+                setLineSpacing(dip(3).toFloat(), 1.15f)
                 setPadding(dip(4), dip(4), 0, 0)
             })
         }
@@ -335,11 +533,22 @@ class ThemePanel(
     private fun stylePrefRow(v: TextView, name: String, focused: Boolean) {
         val value = when (name) {
             "字号" -> "${activity.fontSizeSp.toInt()} px"
+            "文字颜色" -> textColorOptions.firstOrNull { it.second == Theme.textColorOverride(activity) }?.first ?: "自动"
+            "文字深浅" -> "${Theme.textBrightness(activity)}%"
             "行距" -> "${"%.1f".format(Theme.lineHeight(activity))} 倍"
             "左右边距" -> "${Theme.marginPx(activity)} px"
             "上下边距" -> "${Theme.marginYPx(activity)} px"
+            "四角信息" -> if (Theme.showCornerInfo(activity)) "显示" else "隐藏"
+            "左上角" -> cornerLabel(0)
+            "右上角" -> cornerLabel(1)
+            "左下角" -> cornerLabel(2)
+            "右下角" -> cornerLabel(3)
+            "暗黑模式" -> if (Theme.darkMode(activity)) "开启" else "关闭"
+            "长按触发时间" -> "${Theme.fastJumpSec(activity)} 秒"
+            "每次跳跃章数" -> "${Theme.fastJumpChapters(activity)} 章"
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
+            "自动检查更新" -> if (Theme.autoCheckUpdate(activity)) "开启" else "关闭"
             else -> if (Theme.verticalPaging(activity)) "上下键" else "左右键"
         }
         v.text = "$name　　　$value"
@@ -353,12 +562,65 @@ class ThemePanel(
 
     private fun refreshLayoutLabels() {
         stylePrefRow(fontSizeLabel, "字号", fontSizeLabel.hasFocus())
+        stylePrefRow(textColorLabel, "文字颜色", textColorLabel.hasFocus())
+        stylePrefRow(textBrightnessLabel, "文字深浅", textBrightnessLabel.hasFocus())
         stylePrefRow(lineHeightLabel, "行距", lineHeightLabel.hasFocus())
         stylePrefRow(marginLabel, "左右边距", marginLabel.hasFocus())
         stylePrefRow(marginYLabel, "上下边距", marginYLabel.hasFocus())
+        stylePrefRow(cornerInfoLabel, "四角信息", cornerInfoLabel.hasFocus())
+        stylePrefRow(cornerTL, "左上角", cornerTL.hasFocus())
+        stylePrefRow(cornerTR, "右上角", cornerTR.hasFocus())
+        stylePrefRow(cornerBL, "左下角", cornerBL.hasFocus())
+        stylePrefRow(cornerBR, "右下角", cornerBR.hasFocus())
         stylePrefRow(pageModeLabel, "翻页方式", pageModeLabel.hasFocus())
         stylePrefRow(dirMapLabel, "翻页方向", dirMapLabel.hasFocus())
         stylePrefRow(longPressLabel, "长按方向键", longPressLabel.hasFocus())
+        if (::fastJumpSecLabel.isInitialized) {
+            stylePrefRow(fastJumpSecLabel, "长按触发时间", fastJumpSecLabel.hasFocus())
+            stylePrefRow(fastJumpChaptersLabel, "每次跳跃章数", fastJumpChaptersLabel.hasFocus())
+            stylePrefRow(cornerInfoLabel2, "四角信息", cornerInfoLabel2.hasFocus())
+        }
+        if (::darkModeLabel.isInitialized) {
+            stylePrefRow(darkModeLabel, "暗黑模式", darkModeLabel.hasFocus())
+        }
+        if (::autoUpdateLabel.isInitialized) {
+            stylePrefRow(autoUpdateLabel, "自动检查更新", autoUpdateLabel.hasFocus())
+        }
+    }
+
+    private fun cornerLabel(corner: Int): String {
+        val cur = Theme.cornerMode(activity, corner)
+        return Theme.CORNER_MODES.firstOrNull { it.first == cur }?.second ?: "不显示"
+    }
+
+    // ---------- 关于内容 ----------
+
+    private fun buildAboutContent(): ViewGroup {
+        val version = activity.currentVersion()
+        autoUpdateLabel = prefRow("自动检查更新")
+        val col = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(sectionTitle("版本信息"))
+            addView(infoLine("WC-reader　v$version", 20f, TEXT_MAIN))
+            addView(infoLine("作者：Potaperper", 15f, TEXT_SUB))
+            addView(infoLine("项目：github.com/Potaperper/wc-reader", 15f, TEXT_SUB))
+            addView(space(dip(8)))
+            addView(TextView(activity).apply {
+                text = "一个为 Android TV / 机顶盒 / 投影仪设计的第三方阅读客户端。" +
+                    "支持微信读书账号登录、书架、整页分页阅读、进度云同步、注释浏览，" +
+                    "并针对遥控器与大屏阅读做了专门优化。\n\n本项目非官方应用，仅供个人学习与技术研究使用。"
+                textSize = 14f
+                setTextColor(TEXT_SUB)
+                setLineSpacing(dip(4).toFloat(), 1.2f)
+                setPadding(dip(4), 0, dip(4), dip(16))
+            })
+            addView(autoUpdateLabel)
+            addView(actionButton("检查更新") {
+                activity.checkForUpdate { msg -> activity.showToast(msg) }
+            })
+        }
+        stylePrefRow(autoUpdateLabel, "自动检查更新", false)
+        return ScrollView(activity).apply { addView(col) }
     }
 
     // ---------- 账号内容 ----------
@@ -419,33 +681,6 @@ class ThemePanel(
         setPadding(dip(4), 0, 0, dip(12))
     }
 
-    // ---------- 关于内容 ----------
-
-    private fun buildAboutContent(): ViewGroup {
-        val version = activity.currentVersion()
-        val col = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(sectionTitle("关于"))
-            addView(infoLine("WC-reader　v$version", 20f, TEXT_MAIN))
-            addView(infoLine("作者：Potaperper", 15f, TEXT_SUB))
-            addView(infoLine("项目：github.com/Potaperper/wc-reader", 15f, TEXT_SUB))
-            addView(space(dip(10)))
-            addView(TextView(activity).apply {
-                text = "一个为 Android TV / 机顶盒 / 投影仪设计的第三方阅读客户端。" +
-                    "支持微信读书账号登录、书架、整页分页阅读、进度云同步、注释浏览，" +
-                    "并针对遥控器与大屏阅读做了专门优化。\n\n本项目非官方应用，仅供个人学习与技术研究使用。"
-                textSize = 14f
-                setTextColor(TEXT_SUB)
-                setLineSpacing(dip(4).toFloat(), 1.2f)
-                setPadding(dip(4), 0, dip(4), dip(20))
-            })
-            addView(actionButton("检查更新") {
-                activity.checkForUpdate { msg -> activity.showToast(msg) }
-            })
-        }
-        return ScrollView(activity).apply { addView(col) }
-    }
-
     private fun infoLine(text: String, size: Float, color: Int): TextView =
         TextView(activity).apply {
             this.text = text
@@ -460,15 +695,21 @@ class ThemePanel(
         get() = when (tab) {
             TAB_BG -> {
                 val out = mutableListOf<View>()
+                out.add(darkModeLabel)
                 contentBg.findViewsWithTag(out, "swatch_focusable")
-                val palette = contentBg.findViewWithTag<Palette2DView>("palette")
-                if (palette != null) out.add(palette)
+                out.add(hueSatPad)
+                out.add(lightnessBar)
+                out.add(hexInput)
+                out.add(hexApply)
                 out
             }
             TAB_LAYOUT -> listOf(
-                fontSizeLabel, lineHeightLabel, marginLabel, marginYLabel,
+                fontSizeLabel, textColorLabel, textBrightnessLabel, lineHeightLabel,
+                marginLabel, marginYLabel, cornerInfoLabel,
+                cornerTL, cornerTR, cornerBL, cornerBR,
                 pageModeLabel, dirMapLabel, longPressLabel,
             )
+            TAB_EXTRA -> listOf(fastJumpSecLabel, fastJumpChaptersLabel, cornerInfoLabel2)
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
             else -> contentAbout.findAllFocusableViews()
         }
@@ -498,33 +739,56 @@ class ThemePanel(
             KeyEvent.KEYCODE_BACK -> { onDismiss(); return true }
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 val dir = if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) -1 else +1
-                if (tab == TAB_LAYOUT) {
+                if (tab == TAB_LAYOUT || tab == TAB_EXTRA) {
                     if (consumeAdjust(dir)) return true
                 } else if (tab == TAB_BG) {
-                    val palette = paletteView()
-                    if (palette?.hasFocus() == true) {
-                        palette.nudge(dir, 0); return true
+                    if (hueSatPad.hasFocus()) {
+                        pickerHue = (pickerHue + dir * 2f + 360f) % 360f
+                        hueSatPad.setHueSat(pickerHue, pickerSat)
+                        applyPickerColor()
+                        return true
                     }
-                }
-            }
-            KeyEvent.KEYCODE_DPAD_UP -> {
-                if (tab == TAB_BG) {
-                    val palette = paletteView()
-                    if (palette?.hasFocus() == true) {
-                        if (!palette.nudge(0, -1)) { firstSwatch()?.requestFocus(); return true }
+                    if (lightnessBar.hasFocus()) {
+                        pickerVal = (pickerVal + dir * 0.02f).coerceIn(0.05f, 1f)
+                        lightnessBar.setValue(pickerVal)
+                        hueSatPad.value = pickerVal
+                        applyPickerColor()
+                        return true
+                    }
+                    if (consumeAdjust(dir)) return true
+                } else if (tab == TAB_ABOUT) {
+                    if (autoUpdateLabel.hasFocus()) {
+                        Theme.setAutoCheckUpdate(activity, !Theme.autoCheckUpdate(activity))
+                        refreshLayoutLabels()
                         return true
                     }
                 }
             }
-            KeyEvent.KEYCODE_DPAD_DOWN -> {
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                val dy = if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) -1 else +1
                 if (tab == TAB_BG) {
-                    val navFocused = navItems.any { it.hasFocus() }
-                    if (!navFocused) {
-                        val palette = paletteView()
-                        if (palette?.hasFocus() == true) {
-                            palette.nudge(0, +1); return true
+                    if (hueSatPad.hasFocus()) {
+                        val next = (pickerSat + dy * 0.02f).coerceIn(0f, 1f)
+                        if (dy < 0 && next <= 0f) {
+                            firstSwatch()?.requestFocus()
+                            return true
                         }
-                        if (palette != null) { palette.requestFocus(); return true }
+                        pickerSat = next
+                        hueSatPad.setHueSat(pickerHue, pickerSat)
+                        applyPickerColor()
+                        return true
+                    }
+                    if (lightnessBar.hasFocus()) {
+                        val next = (pickerVal - dy * 0.02f).coerceIn(0.05f, 1f)
+                        if (dy < 0 && next >= 1f) {
+                            hueSatPad.requestFocus()
+                            return true
+                        }
+                        pickerVal = next
+                        lightnessBar.setValue(pickerVal)
+                        hueSatPad.value = pickerVal
+                        applyPickerColor()
+                        return true
                     }
                 }
             }
@@ -535,28 +799,83 @@ class ThemePanel(
                     val list = contentFocusables
                     if (list.isNotEmpty()) { list[0].requestFocus(); return true }
                 }
+                if (tab == TAB_BG) {
+                    if (hueSatPad.hasFocus()) { lightnessBar.requestFocus(); return true }
+                    if (lightnessBar.hasFocus()) { hexInput.requestFocus(); return true }
+                }
             }
         }
         return super.dispatchKeyEvent(event)
     }
 
-    private fun paletteView(): Palette2DView? = contentBg.findViewWithTag("palette")
-
-    private fun firstSwatch(): View? = contentFocusables.firstOrNull { it !is Palette2DView }
+    private fun firstSwatch(): View? {
+        val out = mutableListOf<View>()
+        contentBg.findViewsWithTag(out, "swatch_focusable")
+        return out.firstOrNull()
+    }
 
     private fun consumeAdjust(dir: Int): Boolean {
         val focused = contentFocusables.firstOrNull { it.hasFocus() } ?: return false
         when (focused) {
             fontSizeLabel -> { activity.stepFontSize(dir); refreshLayoutLabels() }
+            textColorLabel -> cycleTextColor(dir)
+            textBrightnessLabel -> {
+                Theme.setTextBrightness(activity, Theme.textBrightness(activity) + dir * 5)
+                refreshLayoutLabels()
+                activity.onTextColorChanged()
+            }
             lineHeightLabel -> adjLineHeight(if (dir > 0) 0.1f else -0.1f)
             marginLabel -> adjMargin(if (dir > 0) 8 else -8)
             marginYLabel -> adjMarginY(if (dir > 0) 8 else -8)
+            cornerInfoLabel, cornerInfoLabel2 -> {
+                Theme.setShowCornerInfo(activity, !Theme.showCornerInfo(activity))
+                refreshLayoutLabels()
+                activity.onCornerInfoChanged()
+            }
+            cornerTL -> cycleCorner(0, dir)
+            cornerTR -> cycleCorner(1, dir)
+            cornerBL -> cycleCorner(2, dir)
+            cornerBR -> cycleCorner(3, dir)
             pageModeLabel -> togglePageMode()
             dirMapLabel -> toggleDirMap()
             longPressLabel -> toggleLongPress()
+            fastJumpSecLabel -> {
+                Theme.setFastJumpSec(activity, Theme.fastJumpSec(activity) + dir)
+                refreshLayoutLabels()
+            }
+            fastJumpChaptersLabel -> {
+                Theme.setFastJumpChapters(activity, Theme.fastJumpChapters(activity) + dir * 10)
+                refreshLayoutLabels()
+            }
+            darkModeLabel -> toggleDarkMode()
+            autoUpdateLabel -> {
+                Theme.setAutoCheckUpdate(activity, !Theme.autoCheckUpdate(activity))
+                refreshLayoutLabels()
+            }
             else -> return false
         }
         return true
+    }
+
+    /** 左右键在四角内容选项间循环 */
+    private fun cycleCorner(corner: Int, dir: Int) {
+        val list = Theme.CORNER_MODES
+        val cur = Theme.cornerMode(activity, corner)
+        val idx = list.indexOfFirst { it.first == cur }.let { if (it < 0) 0 else it }
+        val next = (idx + dir + list.size) % list.size
+        Theme.setCornerMode(activity, corner, list[next].first)
+        refreshLayoutLabels()
+        activity.onCornerInfoChanged()
+    }
+
+    /** 左右键在预设文字颜色间循环 */
+    private fun cycleTextColor(dir: Int) {
+        val cur = Theme.textColorOverride(activity)
+        val idx = textColorOptions.indexOfFirst { it.second == cur }.let { if (it < 0) 0 else it }
+        val next = (idx + dir + textColorOptions.size) % textColorOptions.size
+        Theme.setTextColorOverride(activity, textColorOptions[next].second)
+        refreshLayoutLabels()
+        activity.onTextColorChanged()
     }
 
     private fun adjLineHeight(delta: Float) {
@@ -593,7 +912,11 @@ class ThemePanel(
         refreshLayoutLabels()
     }
 
-    private fun applyColor(color: Int) {
+    private fun applyColor(color: Int, keepDarkMode: Boolean = false) {
+        if (!keepDarkMode && Theme.darkMode(activity)) {
+            Theme.setDarkMode(activity, false)
+            refreshLayoutLabels()
+        }
         Theme.setBgColor(activity, color)
         onChanged(color)
     }
@@ -606,92 +929,178 @@ class ThemePanel(
     private fun dip(v: Float): Int = (v * resources.displayMetrics.density).toInt()
 
     /**
-     * 2D 色盘：横轴色相（24 段）、纵轴明暗（8 段），格子与选中框严格对应。
+     * 连续色盘：横轴色相（0-360°），纵轴饱和度（0-1），明度由右侧滑块控制。
      */
-    class Palette2DView(ctx: android.content.Context) : View(ctx) {
-        var onColorPicked: ((Int) -> Unit)? = null
-        private var col = 14
-        private var row = 2
-        private val paint = Paint()
+    class HueSatPad(ctx: android.content.Context) : View(ctx) {
+        var onPick: ((Float, Float) -> Unit)? = null
+        var hue = 210f
+            private set
+        var sat = 0.5f
+            private set
+        var value = 1f
+            set(v) {
+                field = v
+                invalidate()
+            }
 
-        companion object {
-            private const val SEG = 24
-            private const val ROWS = 8
-        }
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         init {
-            tag = "palette"
+            tag = "hueSat"
             isFocusable = true
             isFocusableInTouchMode = true
             background = GradientDrawable().apply {
                 setColor(0xFF232329.toInt())
-                cornerRadius = (10 * resources.displayMetrics.density).toInt().toFloat()
-                setStroke((1 * resources.displayMetrics.density).toInt(), 0xFF2E2E36.toInt())
+                cornerRadius = dip(12).toFloat()
+                setStroke(dip(1), 0xFF2E2E36.toInt())
             }
             setOnFocusChangeListener { _, _ -> invalidate() }
         }
 
-        private fun colHue(c: Int) = c * 360f / SEG
-        private fun rowT(r: Int) = 1f - r.toFloat() / (ROWS - 1)
+        fun setColor(color: Int) {
+            val hsv = FloatArray(3)
+            Color.colorToHSV(color, hsv)
+            hue = hsv[0]
+            sat = hsv[1]
+            value = if (hsv[2] < 0.05f) 1f else hsv[2]
+            invalidate()
+        }
+
+        fun setHueSat(h: Float, s: Float) {
+            hue = h
+            sat = s
+            invalidate()
+        }
 
         override fun onDraw(canvas: Canvas) {
-            val pad = dip(12)
-            val w = width.toFloat() - 2 * pad
-            val h = height.toFloat() - 2 * pad
-            val bh = h * 0.22f
-            canvas.save()
-            canvas.translate(pad.toFloat(), pad.toFloat())
-            // 色相条
-            for (i in 0 until SEG) {
-                paint.color = Color.HSVToColor(floatArrayOf(colHue(i), 0.65f, 0.9f))
-                canvas.drawRect(w * i / SEG, 0f, w * (i + 1) / SEG, bh, paint)
-            }
-            // 明暗网格
-            val gt = bh + dip(12)
-            val gh = h - gt
-            for (r in 0 until ROWS) {
-                val t = rowT(r)
-                for (c in 0 until SEG) {
-                    paint.color = Color.HSVToColor(floatArrayOf(colHue(c), 0.65f * t + 0.05f, 0.9f * t + 0.08f))
-                    canvas.drawRect(
-                        w * c / SEG, gt + gh * r / ROWS,
-                        w * (c + 1) / SEG, gt + gh * (r + 1) / ROWS, paint,
-                    )
-                }
-            }
-            // 选中指示
-            paint.color = Color.WHITE
+            val pad = dip(10)
+            val l = pad.toFloat()
+            val t = pad.toFloat()
+            val r = width.toFloat() - pad
+            val b = height.toFloat() - pad
+            // 色相渐变
             paint.style = Paint.Style.FILL
-            val cx = w * (col + 0.5f) / SEG
-            canvas.drawRect(cx - dip(2), 0f, cx + dip(2), bh, paint)
+            paint.shader = android.graphics.LinearGradient(
+                l, t, r, t,
+                intArrayOf(
+                    Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN,
+                    Color.BLUE, Color.MAGENTA, Color.RED,
+                ),
+                null, android.graphics.Shader.TileMode.CLAMP,
+            )
+            canvas.drawRoundRect(l, t, r, b, dip(8).toFloat(), dip(8).toFloat(), paint)
+            // 饱和度：顶部白 → 底部透明
+            paint.shader = android.graphics.LinearGradient(
+                l, t, l, b,
+                Color.WHITE, 0x00FFFFFF, android.graphics.Shader.TileMode.CLAMP,
+            )
+            canvas.drawRoundRect(l, t, r, b, dip(8).toFloat(), dip(8).toFloat(), paint)
+            paint.shader = null
+            // 明度预览
+            if (value < 1f) {
+                paint.color = Color.argb(((1f - value) * 255).toInt(), 0, 0, 0)
+                canvas.drawRoundRect(l, t, r, b, dip(8).toFloat(), dip(8).toFloat(), paint)
+            }
+            // 选中点
+            val cx = l + (r - l) * hue / 360f
+            val cy = t + (b - t) * sat
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = dip(3).toFloat()
-            val cellW = w / SEG
-            val cellH = gh / ROWS
-            val l = w * col / SEG
-            val t2 = gt + gh * row / ROWS
-            canvas.drawRect(l + dip(2), t2 + dip(2), l + cellW - dip(2), t2 + cellH - dip(2), paint)
-            paint.style = Paint.Style.FILL
-            canvas.restore()
-        }
-
-        fun currentColor(): Int {
-            val t = rowT(row)
-            return Color.HSVToColor(floatArrayOf(colHue(col), 0.65f * t + 0.05f, 0.9f * t + 0.08f))
-        }
-
-        fun nudge(dx: Int, dy: Int): Boolean {
-            if (dx != 0) col = ((col + dx) % SEG + SEG) % SEG
-            if (dy != 0) {
-                val nr = row + dy
-                if (nr !in 0 until ROWS) return false
-                row = nr
+            paint.color = Color.WHITE
+            canvas.drawCircle(cx, cy, dip(9).toFloat(), paint)
+            paint.strokeWidth = dip(1.5f).toFloat()
+            paint.color = Color.BLACK
+            canvas.drawCircle(cx, cy, dip(11).toFloat(), paint)
+            // 焦点框
+            if (isFocused) {
+                paint.strokeWidth = dip(2).toFloat()
+                paint.color = 0xFF4A90D9.toInt()
+                canvas.drawRoundRect(
+                    dip(1).toFloat(), dip(1).toFloat(),
+                    width - dip(1).toFloat(), height - dip(1).toFloat(),
+                    dip(12).toFloat(), dip(12).toFloat(), paint,
+                )
             }
-            invalidate()
-            onColorPicked?.invoke(currentColor())
-            return true
+            paint.style = Paint.Style.FILL
         }
 
         private fun dip(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+        private fun dip(v: Float): Int = (v * resources.displayMetrics.density).toInt()
+    }
+
+    /**
+     * 竖直深浅滑块：顶部最亮，底部纯黑。
+     */
+    class LightnessBar(ctx: android.content.Context) : View(ctx) {
+        var onPick: ((Float) -> Unit)? = null
+        private var hue = 210f
+        private var sat = 0.5f
+        var value = 1f
+            private set
+
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        init {
+            tag = "lightBar"
+            isFocusable = true
+            isFocusableInTouchMode = true
+            background = GradientDrawable().apply {
+                setColor(0xFF232329.toInt())
+                cornerRadius = dip(12).toFloat()
+                setStroke(dip(1), 0xFF2E2E36.toInt())
+            }
+            setOnFocusChangeListener { _, _ -> invalidate() }
+        }
+
+        fun setHsv(color: Int) {
+            val hsv = FloatArray(3)
+            Color.colorToHSV(color, hsv)
+            hue = hsv[0]
+            sat = hsv[1]
+            value = hsv[2].coerceIn(0.05f, 1f)
+            invalidate()
+        }
+
+        fun setValue(v: Float) {
+            value = v.coerceIn(0.05f, 1f)
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val pad = dip(10)
+            val l = pad.toFloat()
+            val t = pad.toFloat()
+            val r = width.toFloat() - pad
+            val b = height.toFloat() - pad
+            val full = Color.HSVToColor(floatArrayOf(hue, sat, 1f))
+            paint.style = Paint.Style.FILL
+            paint.shader = android.graphics.LinearGradient(
+                l, t, l, b, full, Color.BLACK, android.graphics.Shader.TileMode.CLAMP,
+            )
+            canvas.drawRoundRect(l, t, r, b, dip(8).toFloat(), dip(8).toFloat(), paint)
+            paint.shader = null
+            // 当前值指示
+            val cy = t + (b - t) * (1f - value)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = dip(3).toFloat()
+            paint.color = Color.WHITE
+            canvas.drawLine(l - dip(2), cy, r + dip(2), cy, paint)
+            paint.color = Color.BLACK
+            paint.strokeWidth = dip(1).toFloat()
+            canvas.drawLine(l - dip(3), cy + dip(2), r + dip(3), cy + dip(2), paint)
+            if (isFocused) {
+                paint.strokeWidth = dip(2).toFloat()
+                paint.color = 0xFF4A90D9.toInt()
+                canvas.drawRoundRect(
+                    dip(1).toFloat(), dip(1).toFloat(),
+                    width - dip(1).toFloat(), height - dip(1).toFloat(),
+                    dip(12).toFloat(), dip(12).toFloat(), paint,
+                )
+            }
+            paint.style = Paint.Style.FILL
+        }
+
+        private fun dip(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+        private fun dip(v: Float): Int = (v * resources.displayMetrics.density).toInt()
     }
 }
