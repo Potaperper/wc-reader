@@ -362,12 +362,21 @@ class MainActivity : Activity() {
                 if (chapters.isEmpty()) throw Exception("目录为空")
                 reader.setChapters(chapters)
                 val progress = withContext(Dispatchers.IO) {
-                    ReadProgress.fromJson(api.getProgress(book.bookId))
+                    runCatching { ReadProgress.fromJson(api.getProgress(book.bookId)) }
+                        .getOrDefault(ReadProgress(book.bookId, -1, 0, 0))
                 }
-                if (progress.chapterUid > 0) {
-                    reader.openAt(progress.chapterUid, progress.chapterOffset)
-                } else {
-                    reader.loadChapter(0, 0)
+                val local = com.potaperper.wereadtv.util.LocalProgress.load(this@MainActivity, book.bookId)
+                val localIdx = local?.let { p ->
+                    chapters.indexOfFirst { it.chapterUid == p.chapterUid }
+                } ?: -1
+                val cloudIdx = chapters.indexOfFirst { it.chapterUid == progress.chapterUid }
+                when {
+                    // 本地进度存在且不比云端旧：优先本地（可精确到段落）
+                    local != null && localIdx >= 0 && (cloudIdx < 0 || localIdx >= cloudIdx) ->
+                        reader.openAt(local.chapterUid, local.offset, local.percent)
+                    progress.chapterUid > 0 ->
+                        reader.openAt(progress.chapterUid, progress.chapterOffset, progress.progress.toFloat())
+                    else -> reader.loadChapter(0, 0)
                 }
             } catch (e: Exception) {
                 reader.showChapterError("获取目录失败: ${e.message}")

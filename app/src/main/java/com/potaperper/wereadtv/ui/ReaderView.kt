@@ -72,6 +72,7 @@ window.__page = 0;
 window.__totalPages = 1;
 window.__themeBg = '${Theme.toHex(bg)}';
 window.__marginPx = 72;
+window.__marginYPx = 44;
 window.__instant = false;
 var GAP_FACTOR = 2;  /* 栏间距 = 2×边距，视觉上即左右页边距 */
 
@@ -122,12 +123,77 @@ window.gotoFraction = function(f){
   goTo(p, true);
 };
 window.pageInfo = function(){ return window.__page + ',' + window.__totalPages; };
-window.setZoom = function(fontPx){
-  pagerEl().style.fontSize = fontPx + 'px';
-  window.__page = 0;
-  requestAnimationFrame(function(){ requestAnimationFrame(function(){ goTo(0, true); }); });
+function textOffsetOf(root, node, offset){
+  var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+  var acc = 0, n;
+  while ((n = walker.nextNode())) {
+    if (n === node) return acc + offset;
+    acc += n.nodeValue.length;
+  }
+  return -1;
+}
+/* 记录当前页左上角第一个字符在整章文本中的偏移 */
+window.capturePosition = function(){
+  var pager = pagerEl();
+  var page = window.__page;
+  var percent = window.__totalPages > 1 ? page * 100 / (window.__totalPages - 1) : 0;
+  var off = -1;
+  try {
+    var unit = window.innerWidth;
+    var prevTr = pager.style.transition;
+    pager.style.transition = 'none';
+    pager.style.transform = 'translateX(' + (-page * unit) + 'px)';
+    var x = window.__marginPx + 6;
+    var y = window.__marginYPx + 10;
+    var r = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+    if (r && pager.contains(r.startContainer)) {
+      off = textOffsetOf(pager, r.startContainer, r.startOffset);
+    }
+    pager.style.transition = prevTr;
+  } catch(e) {}
+  return off + ',' + percent;
 };
-window.setFontFamily = function(family, bold){
+/* 按字符偏移恢复页（排版变化后仍能回到同一段） */
+window.restorePosition = function(offset, percent){
+  relayout();
+  var pager = pagerEl();
+  var page = 0;
+  if (offset >= 0) {
+    try {
+      var walker = document.createTreeWalker(pager, NodeFilter.SHOW_TEXT, null, false);
+      var acc = 0, node = null, n;
+      while ((n = walker.nextNode())) {
+        if (acc + n.nodeValue.length >= offset) { node = n; break; }
+        acc += n.nodeValue.length;
+      }
+      if (node) {
+        var localOff = Math.max(0, Math.min(offset - acc, node.nodeValue.length));
+        var range = document.createRange();
+        range.setStart(node, localOff);
+        range.setEnd(node, localOff);
+        var prevT = pager.style.transform;
+        var prevTr = pager.style.transition;
+        pager.style.transition = 'none';
+        pager.style.transform = 'translateX(0)';
+        var rect = range.getBoundingClientRect();
+        pager.style.transform = prevT;
+        pager.style.transition = prevTr;
+        page = Math.floor((rect.left - window.__marginPx) / window.innerWidth + 0.001);
+      }
+    } catch(e) {}
+  }
+  if (page <= 0 && percent > 0) {
+    page = Math.round((window.__totalPages - 1) * percent / 100);
+  }
+  page = Math.max(0, Math.min(page, window.__totalPages - 1));
+  goTo(page, true);
+  return page;
+};
+window.setZoom = function(fontPx, offset, percent){
+  pagerEl().style.fontSize = fontPx + 'px';
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ restorePosition(offset, percent); }); });
+};
+window.setFontFamily = function(family, bold, offset, percent){
   var st = document.getElementById('wr-font');
   if (!st) { st = document.createElement('style'); st.id = 'wr-font'; document.head.appendChild(st); }
   var css = '';
@@ -135,17 +201,17 @@ window.setFontFamily = function(family, bold){
   if (bold) css += '#pager, #pager *{font-weight:700 !important;}';
   st.textContent = css;
   pagerEl().style.fontFamily = family || '';
-  requestAnimationFrame(function(){ requestAnimationFrame(function(){ relayout(); goTo(window.__page, true); }); });
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ restorePosition(offset, percent); }); });
 };
-window.setLayoutPrefs = function(lhRatio, marginPx, marginYPx, instant){
+window.setLayoutPrefs = function(lhRatio, marginPx, marginYPx, instant, offset, percent){
   var pager = pagerEl();
   pager.style.lineHeight = lhRatio;
   window.__marginPx = marginPx;
+  window.__marginYPx = marginYPx;
   pager.style.paddingTop = marginYPx + 'px';
   pager.style.paddingBottom = marginYPx + 'px';
   window.__instant = instant;
-  window.__page = 0;
-  requestAnimationFrame(function(){ requestAnimationFrame(function(){ goTo(0, true); }); });
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ restorePosition(offset, percent); }); });
 };
 window.setTheme = function(bg, fg){
   window.__themeBg = bg;
@@ -301,6 +367,15 @@ function fixSrc(el, base){
 
     /** 跨章返回时：加载上一章后自动跳到该章最后一页 */
     private var pendingLastPage = false
+
+    /** 打开章节后要恢复的字符偏移/章节百分比 */
+    private var pendingOffset = -1
+    private var pendingPercent = 0f
+
+    /** 最近一次捕获的阅读位置（用于退出时同步保存） */
+    private var lastOffset = -1
+    private var lastPercent = 0f
+    private var lastLocalSaveAt = 0L
 
     /** 目录快速跳跃模式（长按方向键触发，每次 100 章） */
     private var catalogFastMode = false
@@ -822,9 +897,9 @@ function fixSrc(el, base){
         catalogAdapter.notifyDataSetChanged()
     }
 
-    fun openAt(chapterUid: Long, @Suppress("UNUSED_PARAMETER") chapterOffset: Int) {
+    fun openAt(chapterUid: Long, chapterOffset: Int, percent: Float = 0f) {
         val idx = chapters.indexOfFirst { it.chapterUid == chapterUid }
-        loadChapter(if (idx >= 0) idx else 0, 0)
+        loadChapter(if (idx >= 0) idx else 0, chapterOffset, percent)
     }
 
     fun nextChapterUid(): Long? =
@@ -900,10 +975,14 @@ function fixSrc(el, base){
         if (loading) loadingText.text = "加载中..."
     }
 
-    fun loadChapter(idx: Int, resumeOffset: Int) {
+    fun loadChapter(idx: Int, resumeOffset: Int, resumePercent: Float = 0f) {
         if (idx < 0 || idx >= chapters.size) return
         if (currentChapterIdx != idx && chapters.isNotEmpty()) saveProgress()
         currentChapterIdx = idx
+        pendingOffset = if (resumeOffset > 0) resumeOffset else -1
+        pendingPercent = resumePercent
+        lastOffset = pendingOffset
+        lastPercent = pendingPercent
         loadSeq++
         setLoading(true)
         titleText.text = "${book.title} · ${chapters[idx].title}"
@@ -917,8 +996,25 @@ function fixSrc(el, base){
 
     fun currentChapter(): Chapter? = chapters.getOrNull(currentChapterIdx)
 
+    /** 捕获当前位置（字符偏移 + 章节百分比） */
+    private fun capturePosition(onResult: (Int, Float) -> Unit) {
+        webView.evaluateJavascript("window.capturePosition()") { raw ->
+            val t = raw?.trim()?.trim('"') ?: ""
+            val parts = t.split(",")
+            val off = parts.getOrNull(0)?.trim()?.toFloatOrNull()?.toInt() ?: -1
+            val pct = parts.getOrNull(1)?.trim()?.toFloatOrNull() ?: 0f
+            lastOffset = off
+            lastPercent = pct
+            onResult(off, pct)
+        }
+    }
+
     fun applyZoom() {
-        webView.evaluateJavascript("window.setZoom(${activity.fontSizeSp})", null)
+        capturePosition { off, pct ->
+            webView.evaluateJavascript(
+                "window.setZoom(${activity.fontSizeSp}, $off, $pct)", null,
+            )
+        }
         mainHandler.postDelayed({ refreshHud() }, 350)
     }
 
@@ -939,9 +1035,11 @@ function fixSrc(el, base){
             else -> ""
         }
         val bold = Theme.readerBold(activity)
-        webView.evaluateJavascript(
-            "window.setFontFamily(${jsStr(family)}, $bold)", null,
-        )
+        capturePosition { off, pct ->
+            webView.evaluateJavascript(
+                "window.setFontFamily(${jsStr(family)}, $bold, $off, $pct)", null,
+            )
+        }
     }
 
     fun applyTheme() {
@@ -962,10 +1060,12 @@ function fixSrc(el, base){
     }
 
     fun applyLayoutPrefs() {
-        webView.evaluateJavascript(
-            "window.setLayoutPrefs(${Theme.lineHeight(activity)}, ${Theme.marginPx(activity)}, ${Theme.marginYPx(activity)}, ${Theme.instantPage(activity)})",
-            null,
-        )
+        capturePosition { off, pct ->
+            webView.evaluateJavascript(
+                "window.setLayoutPrefs(${Theme.lineHeight(activity)}, ${Theme.marginPx(activity)}, ${Theme.marginYPx(activity)}, ${Theme.instantPage(activity)}, $off, $pct)",
+                null,
+            )
+        }
     }
 
     // ---------- 四角信息 ----------
@@ -1108,8 +1208,23 @@ function fixSrc(el, base){
                 val page = parts[0].trim().toIntOrNull() ?: 0
                 val total = parts[1].trim().toIntOrNull() ?: 1
                 updateHud(page, total)
+                saveLocalPosition()
                 if (total > 0 && page >= total - 1) saveProgress()
             }
+        }
+    }
+
+    /** 翻页时记录本地位置（节流），退出/换章时走 saveProgress */
+    private fun saveLocalPosition(force: Boolean = false) {
+        val chapter = currentChapter() ?: return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastLocalSaveAt < 900) return
+        lastLocalSaveAt = now
+        val chUid = chapter.chapterUid
+        capturePosition { off, pct ->
+            com.potaperper.wereadtv.util.LocalProgress.save(
+                activity, book.bookId, chUid, off, pct,
+            )
         }
     }
 
@@ -1134,7 +1249,20 @@ function fixSrc(el, base){
 
     fun saveProgress() {
         val chapter = currentChapter() ?: return
-        activity.reportProgress(chapter.chapterUid, 0, 0, contentFormat)
+        val chUid = chapter.chapterUid
+        // 先用缓存立即落盘，保证 onPause/退出时一定保存
+        val off = lastOffset
+        val pct = lastPercent
+        com.potaperper.wereadtv.util.LocalProgress.save(
+            activity, book.bookId, chUid, off, pct,
+        )
+        activity.reportProgress(chUid, pct.toInt().coerceIn(0, 100), off, contentFormat)
+        // 再异步精确捕获一次，修正缓存
+        capturePosition { o2, p2 ->
+            com.potaperper.wereadtv.util.LocalProgress.save(
+                activity, book.bookId, chUid, o2, p2,
+            )
+        }
     }
 
     // ---------- 目录 ----------
@@ -1237,11 +1365,25 @@ function fixSrc(el, base){
         fun onRendered(totalPages: Int) {
             mainHandler.post {
                 loadingText.visibility = GONE
-                if (pendingLastPage) {
-                    pendingLastPage = false
-                    webView.evaluateJavascript("window.gotoLast()") { refreshHud() }
-                } else {
-                    refreshHud()
+                when {
+                    pendingLastPage -> {
+                        pendingLastPage = false
+                        webView.evaluateJavascript("window.gotoLast()") { refreshHud() }
+                    }
+                    pendingOffset >= 0 || pendingPercent > 0f -> {
+                        val off = pendingOffset
+                        val pct = pendingPercent
+                        pendingOffset = -1
+                        pendingPercent = 0f
+                        webView.evaluateJavascript(
+                            "window.restorePosition($off, $pct)",
+                        ) {
+                            lastOffset = off
+                            lastPercent = pct
+                            refreshHud()
+                        }
+                    }
+                    else -> refreshHud()
                 }
             }
         }
