@@ -65,7 +65,6 @@ class ThemePanel(
     private lateinit var longPressLabel: TextView
     private lateinit var textColorLabel: TextView
     private lateinit var textBrightnessLabel: TextView
-    private lateinit var cornerInfoLabel: TextView
     private lateinit var cornerInfoLabel2: TextView
     private lateinit var cornerTL: TextView
     private lateinit var cornerTR: TextView
@@ -436,15 +435,10 @@ class ThemePanel(
     private fun buildLayoutContent(): ViewGroup {
         fontSizeLabel = prefRow("字号")
         textColorLabel = prefRow("文字颜色")
-        textBrightnessLabel = prefRow("文字深浅")
+        textBrightnessLabel = prefRow("文字浓淡")
         lineHeightLabel = prefRow("行距")
         marginLabel = prefRow("左右边距")
         marginYLabel = prefRow("上下边距")
-        cornerInfoLabel = prefRow("四角信息")
-        cornerTL = prefRow("左上角")
-        cornerTR = prefRow("右上角")
-        cornerBL = prefRow("左下角")
-        cornerBR = prefRow("右下角")
         pageModeLabel = prefRow("翻页方式")
         dirMapLabel = prefRow("翻页方向")
         longPressLabel = prefRow("长按方向键")
@@ -460,12 +454,6 @@ class ThemePanel(
             addView(lineHeightLabel)
             addView(marginLabel)
             addView(marginYLabel)
-            addView(sectionTitle("四角信息"))
-            addView(cornerInfoLabel)
-            addView(cornerTL)
-            addView(cornerTR)
-            addView(cornerBL)
-            addView(cornerBR)
             addView(space(dip(14)))
             addView(sectionTitle("翻页"))
             addView(pageModeLabel)
@@ -488,6 +476,10 @@ class ThemePanel(
         fastJumpSecLabel = prefRow("长按触发时间")
         fastJumpChaptersLabel = prefRow("每次跳跃章数")
         cornerInfoLabel2 = prefRow("四角信息")
+        cornerTL = prefRow("左上角")
+        cornerTR = prefRow("右上角")
+        cornerBL = prefRow("左下角")
+        cornerBR = prefRow("右下角")
         refreshLayoutLabels()
 
         val col = LinearLayout(activity).apply {
@@ -503,10 +495,14 @@ class ThemePanel(
                 setLineSpacing(dip(3).toFloat(), 1.15f)
                 setPadding(dip(4), dip(4), dip(4), dip(18))
             })
-            addView(sectionTitle("阅读页"))
+            addView(sectionTitle("阅读页四角信息"))
             addView(cornerInfoLabel2)
+            addView(cornerTL)
+            addView(cornerTR)
+            addView(cornerBL)
+            addView(cornerBR)
             addView(TextView(activity).apply {
-                text = "四角显示的具体内容（时间 / 章节号 / 页数 / 进度 / 书名）可在「排版」页逐个设置。"
+                text = "四个角可以分别选择显示内容，选择「不显示」即可隐藏。"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
                 setLineSpacing(dip(3).toFloat(), 1.15f)
@@ -534,7 +530,7 @@ class ThemePanel(
         val value = when (name) {
             "字号" -> "${activity.fontSizeSp.toInt()} px"
             "文字颜色" -> textColorOptions.firstOrNull { it.second == Theme.textColorOverride(activity) }?.first ?: "自动"
-            "文字深浅" -> "${Theme.textBrightness(activity)}%"
+            "文字浓淡" -> "${Theme.textBrightness(activity)}%"
             "行距" -> "${"%.1f".format(Theme.lineHeight(activity))} 倍"
             "左右边距" -> "${Theme.marginPx(activity)} px"
             "上下边距" -> "${Theme.marginYPx(activity)} px"
@@ -563,15 +559,10 @@ class ThemePanel(
     private fun refreshLayoutLabels() {
         stylePrefRow(fontSizeLabel, "字号", fontSizeLabel.hasFocus())
         stylePrefRow(textColorLabel, "文字颜色", textColorLabel.hasFocus())
-        stylePrefRow(textBrightnessLabel, "文字深浅", textBrightnessLabel.hasFocus())
+        stylePrefRow(textBrightnessLabel, "文字浓淡", textBrightnessLabel.hasFocus())
         stylePrefRow(lineHeightLabel, "行距", lineHeightLabel.hasFocus())
         stylePrefRow(marginLabel, "左右边距", marginLabel.hasFocus())
         stylePrefRow(marginYLabel, "上下边距", marginYLabel.hasFocus())
-        stylePrefRow(cornerInfoLabel, "四角信息", cornerInfoLabel.hasFocus())
-        stylePrefRow(cornerTL, "左上角", cornerTL.hasFocus())
-        stylePrefRow(cornerTR, "右上角", cornerTR.hasFocus())
-        stylePrefRow(cornerBL, "左下角", cornerBL.hasFocus())
-        stylePrefRow(cornerBR, "右下角", cornerBR.hasFocus())
         stylePrefRow(pageModeLabel, "翻页方式", pageModeLabel.hasFocus())
         stylePrefRow(dirMapLabel, "翻页方向", dirMapLabel.hasFocus())
         stylePrefRow(longPressLabel, "长按方向键", longPressLabel.hasFocus())
@@ -579,6 +570,10 @@ class ThemePanel(
             stylePrefRow(fastJumpSecLabel, "长按触发时间", fastJumpSecLabel.hasFocus())
             stylePrefRow(fastJumpChaptersLabel, "每次跳跃章数", fastJumpChaptersLabel.hasFocus())
             stylePrefRow(cornerInfoLabel2, "四角信息", cornerInfoLabel2.hasFocus())
+            stylePrefRow(cornerTL, "左上角", cornerTL.hasFocus())
+            stylePrefRow(cornerTR, "右上角", cornerTR.hasFocus())
+            stylePrefRow(cornerBL, "左下角", cornerBL.hasFocus())
+            stylePrefRow(cornerBR, "右下角", cornerBR.hasFocus())
         }
         if (::darkModeLabel.isInitialized) {
             stylePrefRow(darkModeLabel, "暗黑模式", darkModeLabel.hasFocus())
@@ -705,11 +700,13 @@ class ThemePanel(
             }
             TAB_LAYOUT -> listOf(
                 fontSizeLabel, textColorLabel, textBrightnessLabel, lineHeightLabel,
-                marginLabel, marginYLabel, cornerInfoLabel,
-                cornerTL, cornerTR, cornerBL, cornerBR,
+                marginLabel, marginYLabel,
                 pageModeLabel, dirMapLabel, longPressLabel,
             )
-            TAB_EXTRA -> listOf(fastJumpSecLabel, fastJumpChaptersLabel, cornerInfoLabel2)
+            TAB_EXTRA -> listOf(
+                fastJumpSecLabel, fastJumpChaptersLabel, cornerInfoLabel2,
+                cornerTL, cornerTR, cornerBL, cornerBR,
+            )
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
             else -> contentAbout.findAllFocusableViews()
         }
@@ -736,7 +733,23 @@ class ThemePanel(
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
         when (event.keyCode) {
-            KeyEvent.KEYCODE_BACK -> { onDismiss(); return true }
+            KeyEvent.KEYCODE_BACK -> {
+                if (hexInput.hasFocus()) {
+                    hideIme()
+                    hexApply.requestFocus()
+                    return true
+                }
+                val focusedView = findFocus()
+                val inNav = focusedView != null && navItems.any { it === focusedView }
+                if (focusedView != null && !inNav) {
+                    // 先回到左侧导航，再按一次才退出设置
+                    contentFocused = false
+                    navBg.requestFocus()
+                    return true
+                }
+                onDismiss()
+                return true
+            }
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 val dir = if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) -1 else +1
                 if (tab == TAB_LAYOUT || tab == TAB_EXTRA) {
@@ -827,7 +840,7 @@ class ThemePanel(
             lineHeightLabel -> adjLineHeight(if (dir > 0) 0.1f else -0.1f)
             marginLabel -> adjMargin(if (dir > 0) 8 else -8)
             marginYLabel -> adjMarginY(if (dir > 0) 8 else -8)
-            cornerInfoLabel, cornerInfoLabel2 -> {
+            cornerInfoLabel2 -> {
                 Theme.setShowCornerInfo(activity, !Theme.showCornerInfo(activity))
                 refreshLayoutLabels()
                 activity.onCornerInfoChanged()
@@ -927,6 +940,15 @@ class ThemePanel(
 
     private fun dip(v: Int): Int = (v * resources.displayMetrics.density).toInt()
     private fun dip(v: Float): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun hideIme() {
+        try {
+            val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+            imm.hideSoftInputFromWindow(hexInput.windowToken, 0)
+        } catch (_: Exception) {
+        }
+    }
 
     /**
      * 连续色盘：横轴色相（0-360°），纵轴饱和度（0-1），明度由右侧滑块控制。
