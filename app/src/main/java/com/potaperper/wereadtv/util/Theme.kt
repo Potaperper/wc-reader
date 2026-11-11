@@ -163,6 +163,37 @@ object Theme {
         prefs(ctx).edit().putString("ignoredUpdateVersion", v).apply()
     }
 
+    // ---------- 更新下载线路 ----------
+
+    /** auto = 自动使用上次测速最快的线路；否则为具体线路 id */
+    fun updateSource(ctx: Context): String =
+        prefs(ctx).getString("updateSource", "auto") ?: "auto"
+    fun setUpdateSource(ctx: Context, v: String) {
+        prefs(ctx).edit().putString("updateSource", v).apply()
+    }
+
+    fun updateFastestSource(ctx: Context): String =
+        prefs(ctx).getString("updateFastestSource", "") ?: ""
+    fun setUpdateFastestSource(ctx: Context, v: String) {
+        prefs(ctx).edit().putString("updateFastestSource", v).apply()
+    }
+
+    fun updateFastestLabel(ctx: Context): String =
+        prefs(ctx).getString("updateFastestLabel", "") ?: ""
+    fun setUpdateFastestLabel(ctx: Context, v: String) {
+        prefs(ctx).edit().putString("updateFastestLabel", v).apply()
+    }
+
+    fun updateFastestSpeed(ctx: Context): Int = prefs(ctx).getInt("updateFastestSpeed", 0)
+    fun setUpdateFastestSpeed(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("updateFastestSpeed", v).apply()
+    }
+
+    fun updateFastestTs(ctx: Context): Long = prefs(ctx).getLong("updateFastestTs", 0L)
+    fun setUpdateFastestTs(ctx: Context, v: Long) {
+        prefs(ctx).edit().putLong("updateFastestTs", v).apply()
+    }
+
     /** 阅读正文颜色：暗黑模式固定浅灰，否则自动前景色 + 浓淡 */
     fun readerTextColor(ctx: Context): Int {
         if (darkMode(ctx)) return 0xFFBFBFBF.toInt()

@@ -1,6 +1,12 @@
 package com.potaperper.wereadtv.update
 
 import android.content.Context
+import com.potaperper.wereadtv.util.Theme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -16,16 +22,45 @@ data class UpdateInfo(
     val sizeBytes: Long,
 )
 
+/** 下载线路：直连 + 国内镜像 */
+data class UpdateSource(val id: String, val label: String, val prefix: String)
+
+data class SpeedResult(val source: UpdateSource, val kbPerSec: Int, val ok: Boolean)
+
 object UpdateManager {
     private const val API = "https://api.github.com/repos/Potaperper/wc-reader/releases/latest"
 
-    /** 国内可用的 GitHub 资源加速前缀（失败会自动切换） */
-    private val MIRROR_PREFIXES = listOf(
-        "https://ghproxy.imciel.com/",
-        "https://ghproxy.cfd/",
-        "https://gh-proxy.com/",
-        "https://ghproxy.net/",
+    val SOURCES = listOf(
+        UpdateSource("direct", "直连 GitHub", ""),
+        UpdateSource("imciel", "ghproxy.imciel.com", "https://ghproxy.imciel.com/"),
+        UpdateSource("cfd", "ghproxy.cfd", "https://ghproxy.cfd/"),
+        UpdateSource("ghproxy_com", "gh-proxy.com", "https://gh-proxy.com/"),
+        UpdateSource("ghproxy_net", "ghproxy.net", "https://ghproxy.net/"),
     )
+
+    fun sourceById(id: String): UpdateSource? = SOURCES.firstOrNull { it.id == id }
+
+    /** 当前实际首选线路（auto 时用测速结果） */
+    fun preferredSource(ctx: Context): UpdateSource {
+        val mode = Theme.updateSource(ctx)
+        if (mode != "auto") sourceById(mode)?.let { return it }
+        sourceById(Theme.updateFastestSource(ctx))?.let { return it }
+        return SOURCES.first()
+    }
+
+    fun sourceLabel(ctx: Context): String {
+        val mode = Theme.updateSource(ctx)
+        if (mode != "auto") return sourceById(mode)?.label ?: "自动"
+        val fastest = sourceById(Theme.updateFastestSource(ctx))
+        val speed = Theme.updateFastestSpeed(ctx)
+        return if (fastest != null && speed > 0) {
+            "自动（${fastest.label} · ${speed}KB/s）"
+        } else if (fastest != null) {
+            "自动（${fastest.label}）"
+        } else {
+            "自动（首次下载时测速）"
+        }
+    }
 
     /** 拉取最新 release 信息；失败返回 null */
     fun fetchLatest(): UpdateInfo? {
@@ -74,21 +109,71 @@ object UpdateManager {
         return false
     }
 
-    private data class Source(val label: String, val url: String)
+    // ---------- 测速 ----------
 
-    private fun sources(info: UpdateInfo): List<Source> {
-        val out = mutableListOf(Source("直连 GitHub", info.apkUrl))
-        for (p in MIRROR_PREFIXES) {
-            out.add(Source(p.removePrefix("https://").removeSuffix("/"), p + info.apkUrl))
-        }
-        return out
+    /** 并行测试所有线路：每个线路最多下载 512KB，统计速度 */
+    suspend fun testSources(
+        apkUrl: String,
+        onStatus: (String) -> Unit = {},
+    ): List<SpeedResult> = coroutineScope {
+        onStatus("正在测试下载线路…")
+        SOURCES.map { src ->
+            async(Dispatchers.IO) { testOne(src, apkUrl) }
+        }.awaitAll()
     }
 
+    private fun testOne(src: UpdateSource, apkUrl: String): SpeedResult {
+        return try {
+            val conn = URL(src.prefix + apkUrl).openConnection() as HttpURLConnection
+            conn.connectTimeout = 5000
+            conn.readTimeout = 6000
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "WC-reader")
+            conn.setRequestProperty("Range", "bytes=0-524287")
+            val code = conn.responseCode
+            if (code !in 200..299) return SpeedResult(src, 0, false)
+            val start = System.currentTimeMillis()
+            var total = 0L
+            conn.inputStream.use { ins ->
+                val buf = ByteArray(32 * 1024)
+                while (total < 512 * 1024) {
+                    val n = ins.read(buf)
+                    if (n <= 0) break
+                    total += n
+                    if (System.currentTimeMillis() - start > 6000) break
+                }
+            }
+            val seconds = ((System.currentTimeMillis() - start).coerceAtLeast(1)) / 1000.0
+            SpeedResult(src, (total / seconds / 1024).toInt(), total > 0)
+        } catch (e: Exception) {
+            SpeedResult(src, 0, false)
+        }
+    }
+
+    /** 测速并保存最快的线路 */
+    suspend fun measureAndSave(
+        ctx: Context,
+        apkUrl: String,
+        onStatus: (String) -> Unit = {},
+    ): SpeedResult? {
+        val results = testSources(apkUrl, onStatus)
+        val best = results.filter { it.ok }.maxByOrNull { it.kbPerSec }
+        if (best != null) {
+            Theme.setUpdateFastestSource(ctx, best.source.id)
+            Theme.setUpdateFastestLabel(ctx, best.source.label)
+            Theme.setUpdateFastestSpeed(ctx, best.kbPerSec)
+            Theme.setUpdateFastestTs(ctx, System.currentTimeMillis())
+        }
+        return best
+    }
+
+    // ---------- 下载 ----------
+
     /**
-     * 下载 APK：依次尝试直连与多个加速镜像；
+     * 下载 APK：优先使用已记住的最快线路，失败自动切换其他线路；
      * 单条线路中断会从已下载的字节处续传，最多重试 3 次。
      */
-    fun download(
+    suspend fun download(
         context: Context,
         info: UpdateInfo,
         onProgress: (Int) -> Unit,
@@ -103,16 +188,30 @@ object UpdateManager {
         }
         file.delete()
 
-        val list = sources(info)
-        for ((i, src) in list.withIndex()) {
-            onStatus("线路 ${i + 1}/${list.size}：${src.label}")
+        // 自动模式且还没有测速记录：先测速选最快
+        var preferred = Theme.updateSource(context)
+        if (preferred == "auto" && Theme.updateFastestSource(context).isEmpty()) {
+            val best = measureAndSave(context, info.apkUrl) { onStatus(it) }
+            preferred = best?.source?.id ?: "direct"
+        }
+        if (preferred == "auto") preferred = Theme.updateFastestSource(context)
+
+        val ordered = orderedSources(preferred)
+        for ((i, src) in ordered.withIndex()) {
+            onStatus("线路 ${i + 1}/${ordered.size}：${src.label}")
             if (trySource(src, file, info, onProgress, onStatus)) return file
         }
         return null
     }
 
+    private fun orderedSources(preferredId: String): List<UpdateSource> {
+        val first = SOURCES.firstOrNull { it.id == preferredId }
+        val rest = SOURCES.filter { it.id != preferredId }
+        return if (first != null) listOf(first) + rest else SOURCES
+    }
+
     private fun trySource(
-        src: Source,
+        src: UpdateSource,
         file: File,
         info: UpdateInfo,
         onProgress: (Int) -> Unit,
@@ -123,7 +222,7 @@ object UpdateManager {
             attempt++
             var downloaded = if (file.exists()) file.length() else 0L
             try {
-                val conn = URL(src.url).openConnection() as HttpURLConnection
+                val conn = URL(src.prefix + info.apkUrl).openConnection() as HttpURLConnection
                 conn.connectTimeout = 8000
                 conn.readTimeout = 12000
                 conn.instanceFollowRedirects = true
@@ -170,7 +269,6 @@ object UpdateManager {
                         }
                     }
                 }
-                // 校验：大小一致，且 APK 是 zip（PK 开头）
                 val ok = file.length() > 0 &&
                     (info.sizeBytes <= 0 || file.length() == info.sizeBytes) &&
                     isZip(file)

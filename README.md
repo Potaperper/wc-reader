@@ -1,4 +1,4 @@
-# WC-reader
+﻿# WC-reader
 
 一个运行在 Android TV（及机顶盒/投影仪）上的第三方阅读客户端，可连接微信读书账号，为遥控器阅读而设计。
 
@@ -60,7 +60,7 @@ VSCode 上的 [TouchFish](https://github.com/ylw1997/touchFish) 插件把微信�
 
 ```bash
 adb connect <电视IP>:5555   # 需先在电视上开启 ADB 调试
-adb install WCReader-1.0.9.apk
+adb install WCReader-1.0.10.apk
 ```
 
 ### 方式二：U 盘

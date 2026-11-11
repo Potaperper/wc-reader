@@ -78,6 +78,8 @@ class ThemePanel(
     // ---- 额外功能控件 ----
     private lateinit var fastJumpSecLabel: TextView
     private lateinit var fastJumpChaptersLabel: TextView
+    private lateinit var updateLineLabel: TextView
+    private lateinit var speedTestBtn: TextView
 
     // ---- 背景控件 ----
     private lateinit var darkModeLabel: TextView
@@ -632,6 +634,13 @@ class ThemePanel(
         cornerTR = prefRow("右上角")
         cornerBL = prefRow("左下角")
         cornerBR = prefRow("右下角")
+        updateLineLabel = prefRow("下载线路")
+        speedTestBtn = actionButton("测速并选择最快线路") {
+            activity.speedTestUpdate { msg ->
+                refreshLayoutLabels()
+                activity.showToast(msg)
+            }
+        }
         refreshLayoutLabels()
 
         val col = LinearLayout(activity).apply {
@@ -654,6 +663,16 @@ class ThemePanel(
             addView(cornerBR)
             addView(TextView(activity).apply {
                 text = "四个角可以分别选择显示内容，选择「无」即可隐藏。"
+                textSize = 12f
+                setTextColor(TEXT_SUB)
+                setLineSpacing(dip(3).toFloat(), 1.15f)
+                setPadding(dip(4), dip(4), dip(4), dip(18))
+            })
+            addView(sectionTitle("更新下载"))
+            addView(updateLineLabel)
+            addView(speedTestBtn)
+            addView(TextView(activity).apply {
+                text = "首次下载会自动测速并记住最快的线路；也可以手动测速。"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
                 setLineSpacing(dip(3).toFloat(), 1.15f)
@@ -692,6 +711,7 @@ class ThemePanel(
             "暗黑模式" -> if (Theme.darkMode(activity)) "开启" else "关闭"
             "长按触发时间" -> "${Theme.fastJumpSec(activity)} 秒"
             "每次跳跃章数" -> "${Theme.fastJumpChapters(activity)} 章"
+            "下载线路" -> com.potaperper.wereadtv.update.UpdateManager.sourceLabel(activity)
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
             "自动检查更新" -> if (Theme.autoCheckUpdate(activity)) "开启" else "关闭"
@@ -723,6 +743,9 @@ class ThemePanel(
             stylePrefRow(cornerTR, "右上角", cornerTR.hasFocus())
             stylePrefRow(cornerBL, "左下角", cornerBL.hasFocus())
             stylePrefRow(cornerBR, "右下角", cornerBR.hasFocus())
+            if (::updateLineLabel.isInitialized) {
+                stylePrefRow(updateLineLabel, "下载线路", updateLineLabel.hasFocus())
+            }
         }
         if (::darkModeLabel.isInitialized) {
             stylePrefRow(darkModeLabel, "暗黑模式", darkModeLabel.hasFocus())
@@ -862,6 +885,7 @@ class ThemePanel(
             TAB_EXTRA -> listOf(
                 fastJumpSecLabel, fastJumpChaptersLabel,
                 cornerTL, cornerTR, cornerBL, cornerBR,
+                updateLineLabel, speedTestBtn,
             )
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
             else -> contentAbout.findAllFocusableViews()
@@ -1015,6 +1039,7 @@ class ThemePanel(
                 Theme.setFastJumpChapters(activity, Theme.fastJumpChapters(activity) + dir * 10)
                 refreshLayoutLabels()
             }
+            updateLineLabel -> cycleUpdateSource(dir)
             darkModeLabel -> toggleDarkMode()
             autoUpdateLabel -> {
                 Theme.setAutoCheckUpdate(activity, !Theme.autoCheckUpdate(activity))
@@ -1034,6 +1059,17 @@ class ThemePanel(
         Theme.setCornerMode(activity, corner, list[next].first)
         refreshLayoutLabels()
         activity.onCornerInfoChanged()
+    }
+
+    /** 左右键切换更新下载线路：自动 / 直连 / 各镜像 */
+    private fun cycleUpdateSource(dir: Int) {
+        val modes = listOf("auto") + com.potaperper.wereadtv.update.UpdateManager.SOURCES.map { it.id }
+        val cur = Theme.updateSource(activity)
+        val idx = modes.indexOf(cur).let { if (it < 0) 0 else it }
+        val next = (idx + dir + modes.size) % modes.size
+        Theme.setUpdateSource(activity, modes[next])
+        refreshLayoutLabels()
+        activity.showToast("下载线路：${com.potaperper.wereadtv.update.UpdateManager.sourceLabel(activity)}")
     }
 
     /** 左右键在预设文字颜色间循环 */

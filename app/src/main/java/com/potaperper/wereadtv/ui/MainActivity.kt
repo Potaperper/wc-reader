@@ -11,6 +11,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import com.potaperper.wereadtv.api.WeReadApi
 import com.potaperper.wereadtv.model.Book
@@ -558,7 +559,7 @@ class MainActivity : Activity() {
         "?"
     }
 
-    /** 检查 GitHub Releases：有新版直接弹出下载对话框（带进度条） */
+    /** 检查 GitHub Releases：有新版弹出下载对话框，无更新/失败也给出明确提示 */
     fun checkForUpdate(onResult: (String) -> Unit) {
         scope.launch {
             onResult("正在检查更新…")
@@ -568,14 +569,109 @@ class MainActivity : Activity() {
             val cur = currentVersion()
             if (info == null) {
                 onResult("检查更新失败，请检查网络")
+                if (settingsDialog != null) closeSettings()
+                showInfoDialog("检查更新失败", "无法连接 GitHub Releases，请检查网络后重试。")
                 return@launch
             }
             if (!com.potaperper.wereadtv.update.UpdateManager.isNewer(info.version, cur)) {
                 onResult("已是最新版本 v$cur")
+                if (settingsDialog != null) closeSettings()
+                showInfoDialog("检查更新", "当前已是最新版本 v$cur")
                 return@launch
             }
             showUpdateDialog(info)
         }
+    }
+
+    /** 测速所有下载线路并记住最快的（设置页调用） */
+    fun speedTestUpdate(onDone: (String) -> Unit) {
+        scope.launch {
+            onDone("正在测试下载线路，请稍候…")
+            val info = withContext(Dispatchers.IO) {
+                runCatching { com.potaperper.wereadtv.update.UpdateManager.fetchLatest() }.getOrNull()
+            }
+            if (info == null) {
+                onDone("测速失败：无法获取最新版本信息")
+                return@launch
+            }
+            val best = withContext(Dispatchers.IO) {
+                com.potaperper.wereadtv.update.UpdateManager.measureAndSave(
+                    this@MainActivity, info.apkUrl,
+                )
+            }
+            onDone(
+                if (best != null) {
+                    "最快线路：${best.source.label}（${best.kbPerSec} KB/s），已记住"
+                } else {
+                    "测速失败：所有线路均不可用"
+                },
+            )
+        }
+    }
+
+    /** 通用信息弹窗（遥控器 OK 关闭） */
+    fun showInfoDialog(title: String, message: String) {
+        lateinit var dlg: android.app.Dialog
+        val titleView = TextView(this).apply {
+            text = title
+            textSize = 22f
+            setTextColor(0xFFEAEAEE.toInt())
+        }
+        val msgView = TextView(this).apply {
+            text = message
+            textSize = 16f
+            setTextColor(0xFF9A9AA2.toInt())
+            setLineSpacing(6f, 1.2f)
+            setPadding(0, 16, 0, 24)
+        }
+        val ok = TextView(this).apply {
+            text = "知道了"
+            textSize = 17f
+            gravity = android.view.Gravity.CENTER
+            setTextColor(0xFFEAEAEE.toInt())
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setPadding(24, 14, 24, 14)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 24f
+                setColor(0xFF232329.toInt())
+                setStroke(2, 0xFF2E2E36.toInt())
+            }
+            setOnClickListener { dlg.dismiss() }
+            setOnFocusChangeListener { v, has ->
+                (v as TextView).setTextColor(if (has) 0xFFFFFFFF.toInt() else 0xFFEAEAEE.toInt())
+                v.background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = 24f
+                    setColor(if (has) 0xFF4A90D9.toInt() else 0xFF232329.toInt())
+                    setStroke(2, if (has) 0xFFFFFFFF.toInt() else 0xFF2E2E36.toInt())
+                }
+            }
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 40, 48, 36)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFF1B1B1F.toInt())
+                cornerRadius = 36f
+                setStroke(2, 0x22FFFFFF)
+            }
+            addView(titleView)
+            addView(msgView)
+            addView(ok)
+        }
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(0xC8000000.toInt())
+            addView(card, FrameLayout.LayoutParams(
+                (resources.displayMetrics.widthPixels * 0.42f).toInt(),
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.CENTER,
+            ))
+        }
+        dlg = android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen)
+        dlg.setContentView(root)
+        dlg.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dlg.show()
+        ok.requestFocus()
     }
 
     /** 当前登录账号的 vid（从 cookie 提取），供账号面板显示 */
