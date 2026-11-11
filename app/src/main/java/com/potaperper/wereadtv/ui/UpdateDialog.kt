@@ -1,4 +1,4 @@
-package com.potaperper.wereadtv.ui
+﻿package com.potaperper.wereadtv.ui
 
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -20,6 +20,7 @@ class UpdateDialog(
     private val activity: MainActivity,
     private val info: UpdateInfo,
     private val onDownload: () -> Unit,
+    private val onCopyLink: () -> Unit,
     private val onIgnoreVersion: () -> Unit,
     private val onDisableAutoCheck: () -> Unit,
     private val onDismiss: () -> Unit,
@@ -28,6 +29,7 @@ class UpdateDialog(
     private val accent = 0xFF4A90D9.toInt()
     private val progressBar: ProgressBar
     private val progressText: TextView
+    private val statusText: TextView
     private val buttons = mutableListOf<TextView>()
     private var downloading = false
 
@@ -75,6 +77,14 @@ class UpdateDialog(
             setPadding(0, dip(6), 0, 0)
             visibility = GONE
         }
+        statusText = TextView(activity).apply {
+            text = "已下载 ${"%.1f".format(info.sizeBytes / 1024f / 1024f)} MB 安装包，可自动切换加速线路"
+            textSize = 12f
+            setTextColor(0xFF9A9AA2.toInt())
+            setPadding(0, dip(4), 0, 0)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
 
         val downloadBtn = button("下载更新") {
             if (!downloading) {
@@ -82,10 +92,12 @@ class UpdateDialog(
                 progressBar.visibility = VISIBLE
                 progressText.visibility = VISIBLE
                 progressText.text = "0%"
+                statusText.text = "正在连接…"
                 downBtn.text = "下载中…"
                 onDownload()
             }
         }
+        val copyBtn = button("复制下载链接") { onCopyLink() }
         val ignoreBtn = button("忽略此版本") { onIgnoreVersion() }
         val neverBtn = button("不再提示") { onDisableAutoCheck() }
 
@@ -100,10 +112,12 @@ class UpdateDialog(
             addView(title)
             addView(versionText)
             addView(notesView)
+            addView(statusText)
             addView(progressBar)
             addView(progressText)
-            addView(space(dip(18)))
+            addView(space(dip(14)))
             addView(downloadBtn)
+            addView(copyBtn)
             addView(ignoreBtn)
             addView(neverBtn)
         }
@@ -159,6 +173,10 @@ class UpdateDialog(
         if (pct >= 100) {
             progressText.text = "下载完成，正在打开安装程序…"
         }
+    }
+
+    fun setStatus(text: String) {
+        statusText.text = text
     }
 
     fun setDownloadFailed(msg: String) {

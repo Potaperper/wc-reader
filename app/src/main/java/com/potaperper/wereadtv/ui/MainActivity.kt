@@ -451,6 +451,13 @@ class MainActivity : Activity() {
         val view = UpdateDialog(
             this, info,
             onDownload = { startUpdateDownload(info, dialogRef) },
+            onCopyLink = {
+                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(
+                    android.content.ClipData.newPlainText("WC-reader APK", info.apkUrl),
+                )
+                showToast("下载链接已复制，可用手机/电脑下载后传到电视")
+            },
             onIgnoreVersion = {
                 Theme.setIgnoredUpdateVersion(this, info.version)
                 showToast("已忽略 ${info.tag}")
@@ -483,16 +490,20 @@ class MainActivity : Activity() {
         val view = dialog.findViewById<android.view.View>(android.R.id.content)
         val updateView = (view as? android.view.ViewGroup)?.getChildAt(0) as? UpdateDialog
         ioScope.launch {
-            val file = com.potaperper.wereadtv.update.UpdateManager.download(this@MainActivity, info) { pct ->
-                mainHandler.post { updateView?.setProgress(pct) }
-            }
+            val file = com.potaperper.wereadtv.update.UpdateManager.download(
+                this@MainActivity, info,
+                onProgress = { pct -> mainHandler.post { updateView?.setProgress(pct) } },
+                onStatus = { s -> mainHandler.post { updateView?.setStatus(s) } },
+            )
             if (file != null) {
                 mainHandler.post {
                     dialog.dismiss()
                     installApk(file)
                 }
             } else {
-                mainHandler.post { updateView?.setDownloadFailed("下载失败，请检查网络后重试") }
+                mainHandler.post {
+                    updateView?.setDownloadFailed("下载失败：已尝试直连与加速线路。可点「复制下载链接」用其他设备下载")
+                }
             }
         }
     }
