@@ -355,7 +355,6 @@ class ThemePanel(
             })
             addView(saveCustomBtnLocal)
             addView(inputHexBtnLocal)
-            addView(saveCustomBtn)
         }
         return ScrollView(activity).apply {
             clipChildren = false
