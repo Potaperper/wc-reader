@@ -53,6 +53,8 @@ class UpdateDialog(
             setTextColor(0xFF9A9AA2.toInt())
             setLineSpacing(dip(3).toFloat(), 1.15f)
             setPadding(0, dip(14), 0, 0)
+            maxLines = 6
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
 
         progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -106,12 +108,17 @@ class UpdateDialog(
             addView(neverBtn)
         }
         addView(card, LayoutParams(
-            (resources.displayMetrics.widthPixels * 0.52f).toInt(),
+            (resources.displayMetrics.widthPixels * 0.60f).toInt(),
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER,
         ))
 
-        post { downloadBtn.requestFocus() }
+        post { focusFirst() }
+    }
+
+    /** 让“下载更新”获得焦点（供 Dialog 显示后调用） */
+    fun focusFirst() {
+        if (::downBtn.isInitialized) downBtn.requestFocus()
     }
 
     private lateinit var downBtn: TextView

@@ -445,6 +445,8 @@ class MainActivity : Activity() {
 
     fun showUpdateDialog(info: com.potaperper.wereadtv.update.UpdateInfo) {
         if (updateDialog != null) return
+        // 设置面板可能还开着：先关掉，保证更新弹窗在最上层且能拿到焦点
+        if (settingsDialog != null) closeSettings()
         lateinit var dialogRef: android.app.Dialog
         val view = UpdateDialog(
             this, info,
@@ -468,6 +470,7 @@ class MainActivity : Activity() {
         dialog.setCanceledOnTouchOutside(false)
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         dialog.setOnDismissListener { updateDialog = null }
+        dialog.setOnShowListener { view.focusFirst() }
         dialogRef = dialog
         updateDialog = dialog
         dialog.show()
