@@ -1,4 +1,4 @@
-WC-reader 内置字体来源与版权说明
+﻿WC-reader 内置字体来源与版权说明
 ================================
 
 所有字体均采用 SIL Open Font License 1.1（许可全文见同目录 OFL.txt）。
@@ -25,4 +25,4 @@ WC-reader 内置字体来源与版权说明
 6. 得意黑 / Smiley Sans
    Copyright 2022 Atelier Anchor (https://github.com/atelier-anchor/smiley-sans)
 
-字体文件已做子集化（常用 3500 汉字 + 标点/ASCII），以减小安装包体积。
+字体文件已做子集化（通用规范汉字表（8000+ 汉字）+ 标点/ASCII），以减小安装包体积。
