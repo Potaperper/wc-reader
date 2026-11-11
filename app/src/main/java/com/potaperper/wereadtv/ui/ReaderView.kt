@@ -46,13 +46,10 @@ html,body{margin:0;padding:0;background:${Theme.toHex(bg)};height:100%;overflow:
 @font-face{font-family:'WC-Serif';src:url('https://wc-reader.local/fonts/noto_serif_sc.woff2');}
 @font-face{font-family:'WC-Sans';src:url('https://wc-reader.local/fonts/noto_sans_sc.woff2');}
 @font-face{font-family:'WC-Kai';src:url('https://wc-reader.local/fonts/lxgw_wenkai.woff2');}
-@font-face{font-family:'WC-KaiScreen';src:url('https://wc-reader.local/fonts/lxgw_wenkai_screen.woff2');}
 @font-face{font-family:'WC-XiHei';src:url('https://wc-reader.local/fonts/lxgw_xihei.woff2');}
 @font-face{font-family:'WC-Yozai';src:url('https://wc-reader.local/fonts/yozai.woff2');}
-@font-face{font-family:'WC-Zcool';src:url('https://wc-reader.local/fonts/zcool_xiaowei.woff2');}
-@font-face{font-family:'WC-MaShanZheng';src:url('https://wc-reader.local/fonts/mashanzheng.woff2');}
-@font-face{font-family:'WC-QingKe';src:url('https://wc-reader.local/fonts/zcool_qingke.woff2');}
-@font-face{font-family:'WC-LongCang';src:url('https://wc-reader.local/fonts/longcang.woff2');}
+@font-face{font-family:'WC-Glow';src:url('https://wc-reader.local/fonts/glow_sans.woff2');}
+@font-face{font-family:'WC-Smiley';src:url('https://wc-reader.local/fonts/smiley_sans.woff2');}
 #pager{
   height:100%;box-sizing:border-box;
   color:${Theme.toHex(fg)};
@@ -1024,13 +1021,10 @@ function fixSrc(el, base){
             "serif" -> "'WC-Serif', serif"
             "sans" -> "'WC-Sans', sans-serif"
             "kai" -> "'WC-Kai', serif"
-            "kai_screen" -> "'WC-KaiScreen', serif"
             "xihei" -> "'WC-XiHei', sans-serif"
             "yozai" -> "'WC-Yozai', serif"
-            "zcool" -> "'WC-Zcool', serif"
-            "mashanzheng" -> "'WC-MaShanZheng', serif"
-            "qingke" -> "'WC-QingKe', sans-serif"
-            "longcang" -> "'WC-LongCang', serif"
+            "glow" -> "'WC-Glow', sans-serif"
+            "smiley" -> "'WC-Smiley', sans-serif"
             "mono" -> "monospace"
             else -> ""
         }
@@ -1250,14 +1244,16 @@ function fixSrc(el, base){
     fun saveProgress() {
         val chapter = currentChapter() ?: return
         val chUid = chapter.chapterUid
-        // 先用缓存立即落盘，保证 onPause/退出时一定保存
+        // 本地进度：精确到章节内段落，供本应用恢复
         val off = lastOffset
         val pct = lastPercent
         com.potaperper.wereadtv.util.LocalProgress.save(
             activity, book.bookId, chUid, off, pct,
         )
-        activity.reportProgress(chUid, pct.toInt().coerceIn(0, 100), off, contentFormat)
-        // 再异步精确捕获一次，修正缓存
+        // 云端进度保持与官方 Web 端一致的字段语义：只更新章节，偏移/百分比传 0
+        // （传自定义偏移会导致手机端无法定位，甚至回到章首）
+        activity.reportProgress(chUid, 0, 0, contentFormat)
+        // 再异步精确捕获一次，修正本地缓存
         capturePosition { o2, p2 ->
             com.potaperper.wereadtv.util.LocalProgress.save(
                 activity, book.bookId, chUid, o2, p2,

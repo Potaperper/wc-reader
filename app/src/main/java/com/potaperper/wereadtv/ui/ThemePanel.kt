@@ -612,13 +612,10 @@ class ThemePanel(
             "serif" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_serif.ttf")
             "sans" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_sans.ttf")
             "kai" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_kai.ttf")
-            "kai_screen" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_kai_screen.ttf")
             "xihei" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_xihei.ttf")
             "yozai" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_yozai.ttf")
-            "zcool" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_zcool.ttf")
-            "mashanzheng" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_mashanzheng.ttf")
-            "qingke" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_qingke.ttf")
-            "longcang" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_longcang.ttf")
+            "glow" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_glow.ttf")
+            "smiley" -> android.graphics.Typeface.createFromAsset(activity.assets, "fonts/preview_smiley.ttf")
             "mono" -> android.graphics.Typeface.MONOSPACE
             else -> null
         }

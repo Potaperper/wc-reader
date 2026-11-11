@@ -33,13 +33,10 @@ object Theme {
         "serif" to "思源宋体",
         "sans" to "思源黑体",
         "kai" to "霞鹜文楷",
-        "kai_screen" to "霞鹜文楷·屏幕版",
         "xihei" to "霞鹜新晰黑",
         "yozai" to "悠哉字体",
-        "zcool" to "站酷小薇",
-        "mashanzheng" to "马善政毛笔楷书",
-        "qingke" to "站酷庆科黄油",
-        "longcang" to "龙藏体",
+        "glow" to "未来荧黑",
+        "smiley" to "得意黑",
         "mono" to "等宽字体",
     )
 
