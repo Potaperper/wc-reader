@@ -307,6 +307,11 @@ window.startAutoScroll = function(basePx, targetCps, adaptive){
   window.__autoCps = targetCps;
   window.__autoAdaptive = !!adaptive;
   window.updateCharsPerScreen();
+  var maxStart = document.body.scrollHeight - window.innerHeight;
+  if (maxStart <= 2) {
+    try { AndroidBridge.onScrollChapterEnd(); } catch(e){}
+    return;
+  }
   var last = performance.now();
   var acc = 0;
   var lastCalc = 0;
@@ -1236,6 +1241,7 @@ function fixSrc(el, base){
         hudTopRight.setTextColor(sec)
         hudBottomLeft.setTextColor(sec)
         hudBottomRight.setTextColor(sec)
+        updateHudStyle()
         webView.evaluateJavascript(
             "window.setTheme('${Theme.toHex(bg)}', '${Theme.toHex(fg)}')", null,
         )
@@ -1249,6 +1255,7 @@ function fixSrc(el, base){
         val botPad = Theme.marginBottomPx(activity) +
             (if (bottomHudVisible()) band else 0)
         // 四角信息与正文左右对齐
+        updateHudStyle()
         val hInset = Theme.marginPx(activity)
         hudTopLeft.setPadding(hInset, dip(10), hInset, dip(4))
         hudTopRight.setPadding(hInset, dip(10), hInset, dip(4))
@@ -1273,11 +1280,26 @@ function fixSrc(el, base){
     private fun hudBandPx(): Int =
         hudTopLeft.height.takeIf { it > 0 } ?: dip(44)
 
+    /** 自动滚动时正文会从四角信息下面滑过，给角标加一层同色底避免重叠 */
+    private fun updateHudStyle() {
+        val bg = Theme.bgColor(activity)
+        val showChip = Theme.autoScroll(activity)
+        fun chip(): GradientDrawable? = if (!showChip) null else GradientDrawable().apply {
+            setColor(if (Theme.isDark(bg)) 0xF0181818.toInt() else 0xF0F2EDE2.toInt())
+            cornerRadius = dip(10).toFloat()
+        }
+        hudTopLeft.background = chip()
+        hudTopRight.background = chip()
+        hudBottomLeft.background = chip()
+        hudBottomRight.background = chip()
+    }
+
     // ---------- 自动滚动 ----------
 
     /** 应用/关闭连续滚动模式 */
     fun applyReaderMode(announce: Boolean = true) {
         val on = Theme.autoScroll(activity)
+        updateHudStyle()
         capturePosition { off, pct ->
             webView.evaluateJavascript("window.setScrollMode($on)", null)
             mainHandler.postDelayed({
