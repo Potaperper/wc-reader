@@ -59,12 +59,14 @@ class ThemePanel(
     private lateinit var fontSizeLabel: TextView
     private lateinit var lineHeightLabel: TextView
     private lateinit var marginLabel: TextView
-    private lateinit var marginYLabel: TextView
+    private lateinit var marginTopLabel: TextView
+    private lateinit var marginBottomLabel: TextView
     private lateinit var pageModeLabel: TextView
     private lateinit var dirMapLabel: TextView
     private lateinit var longPressLabel: TextView
     private lateinit var textBrightnessLabel: TextView
     private lateinit var boldLabel: TextView
+    private lateinit var fontLabel: TextView
     private lateinit var cornerTL: TextView
     private lateinit var cornerTR: TextView
     private lateinit var cornerBL: TextView
@@ -80,6 +82,9 @@ class ThemePanel(
     private lateinit var fastJumpChaptersLabel: TextView
     private lateinit var updateLineLabel: TextView
     private lateinit var speedTestBtn: TextView
+    private lateinit var autoScrollLabel: TextView
+    private lateinit var scrollSpeedLabel: TextView
+    private lateinit var scrollModeLabel: TextView
 
     // ---- 背景控件 ----
     private lateinit var darkModeLabel: TextView
@@ -511,24 +516,17 @@ class ThemePanel(
         fontSizeLabel = prefRow("字号")
         textBrightnessLabel = prefRow("字体颜色浓淡")
         boldLabel = prefRow("文字加粗")
+        fontLabel = prefRow("字体")
+        selectedFont = Theme.readerFont(activity)
+        fontLabel.setOnClickListener { showFontDialog() }
         lineHeightLabel = prefRow("行距")
         marginLabel = prefRow("左右边距")
-        marginYLabel = prefRow("上下边距")
+        marginTopLabel = prefRow("上边距")
+        marginBottomLabel = prefRow("下边距")
         pageModeLabel = prefRow("翻页方式")
         dirMapLabel = prefRow("翻页方向")
         longPressLabel = prefRow("长按方向键")
         refreshLayoutLabels()
-
-        fontRows.clear()
-        selectedFont = Theme.readerFont(activity)
-        val fontCol = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            for ((key, name) in Theme.FONTS) {
-                val row = fontRow(key, name)
-                fontRows.add(row)
-                addView(row)
-            }
-        }
 
         val col = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -536,13 +534,13 @@ class ThemePanel(
             addView(fontSizeLabel)
             addView(textBrightnessLabel)
             addView(boldLabel)
-            addView(sectionTitle("字体样式"))
-            addView(fontCol)
+            addView(fontLabel)
             addView(space(dip(10)))
             addView(sectionTitle("版式"))
             addView(lineHeightLabel)
             addView(marginLabel)
-            addView(marginYLabel)
+            addView(marginTopLabel)
+            addView(marginBottomLabel)
             addView(space(dip(14)))
             addView(sectionTitle("翻页"))
             addView(pageModeLabel)
@@ -550,9 +548,10 @@ class ThemePanel(
             addView(longPressLabel)
             addView(space(dip(10)))
             addView(TextView(activity).apply {
-                text = "聚焦后用左右键调整，更改立即生效"
+                text = "聚焦后用左右键调整，更改立即生效。\n四角信息会自动在上/下边距外预留空间，不会遮挡正文。"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
+                setLineSpacing(dip(2).toFloat(), 1.15f)
                 setPadding(dip(4), dip(4), 0, 0)
             })
         }
@@ -608,6 +607,108 @@ class ThemePanel(
     }
 
     /** 字体预览用 typeface；字体文件缺失时退回系统字体 */
+    /** 字体二级选择弹窗：列表里每项用对应字体渲染自己的名字 */
+    private fun showFontDialog() {
+        val dialog = android.app.Dialog(
+            activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen,
+        )
+        val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val rows = mutableListOf<Pair<String, TextView>>()
+        lateinit var scroll: ScrollView
+
+        fun select(key: String) {
+            selectedFont = key
+            Theme.setReaderFont(activity, key)
+            refreshLayoutLabels()
+            activity.onFontChanged()
+        }
+
+        for ((key, name) in Theme.FONTS) {
+            val tf = fontTypeface(key)
+            val row = TextView(activity).apply {
+                textSize = 20f
+                setPadding(dip(22), dip(14), dip(22), dip(14))
+                isFocusable = true
+                isFocusableInTouchMode = true
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = dip(8) }
+                if (tf != null) typeface = tf
+                text = (if (key == selectedFont) "✓  " else "　　") + name
+                setTextColor(if (key == selectedFont) ACCENT else TEXT_MAIN)
+                background = GradientDrawable().apply {
+                    cornerRadius = dip(12).toFloat()
+                    setColor(CARD_BG)
+                    setStroke(dip(1), CARD_BORDER)
+                }
+                setOnFocusChangeListener { v, has ->
+                    (v as TextView).setTextColor(
+                        when {
+                            has -> 0xFFFFFFFF.toInt()
+                            key == selectedFont -> ACCENT
+                            else -> TEXT_MAIN
+                        },
+                    )
+                    v.background = GradientDrawable().apply {
+                        cornerRadius = dip(12).toFloat()
+                        setColor(if (has) 0x2E4A90D9 else CARD_BG)
+                        setStroke(dip(1), if (has) ACCENT else CARD_BORDER)
+                    }
+                    if (has) scroll.post { scroll.smoothScrollTo(0, (v.top - dip(120)).coerceAtLeast(0)) }
+                }
+                setOnClickListener {
+                    select(key)
+                    dialog.dismiss()
+                }
+            }
+            rows.add(key to row)
+            column.addView(row)
+        }
+        scroll = ScrollView(activity).apply {
+            isFocusable = false
+            addView(column)
+        }
+        val title = TextView(activity).apply {
+            text = "选择字体"
+            textSize = 20f
+            setTextColor(TEXT_MAIN)
+            setPadding(0, 0, 0, dip(16))
+        }
+        val card = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dip(30), dip(26), dip(30), dip(22))
+            background = GradientDrawable().apply {
+                setColor(0xFF1B1B1F.toInt())
+                cornerRadius = dip(18).toFloat()
+                setStroke(dip(1), 0x22FFFFFF)
+            }
+            addView(title)
+            addView(scroll, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f,
+            ))
+        }
+        val root = FrameLayout(activity).apply {
+            setBackgroundColor(0xC8000000.toInt())
+            addView(card, FrameLayout.LayoutParams(
+                (resources.displayMetrics.widthPixels * 0.46f).toInt(),
+                (resources.displayMetrics.heightPixels * 0.74f).toInt(),
+                Gravity.CENTER,
+            ))
+        }
+        dialog.setContentView(root)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setOnDismissListener {
+            refreshLayoutLabels()
+            activity.onFontChanged()
+        }
+        dialog.show()
+        val target = rows.firstOrNull { it.first == selectedFont }?.second ?: rows.first().second
+        target.post {
+            target.requestFocus()
+            scroll.smoothScrollTo(0, (target.top - dip(120)).coerceAtLeast(0))
+        }
+    }
+
     private fun fontTypeface(key: String): android.graphics.Typeface? = try {
         when (key) {
             "system" -> null
@@ -641,6 +742,9 @@ class ThemePanel(
                 activity.showToast(msg)
             }
         }
+        autoScrollLabel = prefRow("自动滚动")
+        scrollSpeedLabel = prefRow("滚动速度")
+        scrollModeLabel = prefRow("滚动方式")
         refreshLayoutLabels()
 
         val col = LinearLayout(activity).apply {
@@ -676,6 +780,18 @@ class ThemePanel(
                 textSize = 12f
                 setTextColor(TEXT_SUB)
                 setLineSpacing(dip(3).toFloat(), 1.15f)
+                setPadding(dip(4), dip(4), dip(4), dip(18))
+            })
+            addView(sectionTitle("自动滚动"))
+            addView(autoScrollLabel)
+            addView(scrollSpeedLabel)
+            addView(scrollModeLabel)
+            addView(TextView(activity).apply {
+                text = "开启后阅读页改为连续纵向滚动。方向键可暂停，顶栏「滚动」按钮继续；" +
+                    "「按字数」会按可见字数自动调整速度。"
+                textSize = 12f
+                setTextColor(TEXT_SUB)
+                setLineSpacing(dip(3).toFloat(), 1.15f)
                 setPadding(dip(4), dip(4), 0, 0)
             })
         }
@@ -701,9 +817,11 @@ class ThemePanel(
             "字号" -> "${activity.fontSizeSp.toInt()} px"
             "字体颜色浓淡" -> "${Theme.textBrightness(activity)}%"
             "文字加粗" -> if (Theme.readerBold(activity)) "开启" else "关闭"
+            "字体" -> Theme.FONTS.firstOrNull { it.first == Theme.readerFont(activity) }?.second ?: "系统默认"
             "行距" -> "${"%.1f".format(Theme.lineHeight(activity))} 倍"
             "左右边距" -> "${Theme.marginPx(activity)} px"
-            "上下边距" -> "${Theme.marginYPx(activity)} px"
+            "上边距" -> "${Theme.marginTopPx(activity)} px"
+            "下边距" -> "${Theme.marginBottomPx(activity)} px"
             "左上角" -> cornerLabel(0)
             "右上角" -> cornerLabel(1)
             "左下角" -> cornerLabel(2)
@@ -712,6 +830,9 @@ class ThemePanel(
             "长按触发时间" -> "${Theme.fastJumpSec(activity)} 秒"
             "每次跳跃章数" -> "${Theme.fastJumpChapters(activity)} 章"
             "下载线路" -> com.potaperper.wereadtv.update.UpdateManager.sourceLabel(activity)
+            "自动滚动" -> if (Theme.autoScroll(activity)) "开启" else "关闭"
+            "滚动速度" -> "${Theme.scrollSpeed(activity)} 级"
+            "滚动方式" -> if (Theme.scrollAdaptive(activity)) "按字数" else "匀速"
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
             "自动检查更新" -> if (Theme.autoCheckUpdate(activity)) "开启" else "关闭"
@@ -730,9 +851,11 @@ class ThemePanel(
         stylePrefRow(fontSizeLabel, "字号", fontSizeLabel.hasFocus())
         stylePrefRow(textBrightnessLabel, "字体颜色浓淡", textBrightnessLabel.hasFocus())
         stylePrefRow(boldLabel, "文字加粗", boldLabel.hasFocus())
+        stylePrefRow(fontLabel, "字体", fontLabel.hasFocus())
         stylePrefRow(lineHeightLabel, "行距", lineHeightLabel.hasFocus())
         stylePrefRow(marginLabel, "左右边距", marginLabel.hasFocus())
-        stylePrefRow(marginYLabel, "上下边距", marginYLabel.hasFocus())
+        stylePrefRow(marginTopLabel, "上边距", marginTopLabel.hasFocus())
+        stylePrefRow(marginBottomLabel, "下边距", marginBottomLabel.hasFocus())
         stylePrefRow(pageModeLabel, "翻页方式", pageModeLabel.hasFocus())
         stylePrefRow(dirMapLabel, "翻页方向", dirMapLabel.hasFocus())
         stylePrefRow(longPressLabel, "长按方向键", longPressLabel.hasFocus())
@@ -745,6 +868,9 @@ class ThemePanel(
             stylePrefRow(cornerBR, "右下角", cornerBR.hasFocus())
             if (::updateLineLabel.isInitialized) {
                 stylePrefRow(updateLineLabel, "下载线路", updateLineLabel.hasFocus())
+                stylePrefRow(autoScrollLabel, "自动滚动", autoScrollLabel.hasFocus())
+                stylePrefRow(scrollSpeedLabel, "滚动速度", scrollSpeedLabel.hasFocus())
+                stylePrefRow(scrollModeLabel, "滚动方式", scrollModeLabel.hasFocus())
             }
         }
         if (::darkModeLabel.isInitialized) {
@@ -874,10 +1000,11 @@ class ThemePanel(
                 add(fontSizeLabel)
                 add(textBrightnessLabel)
                 add(boldLabel)
-                addAll(fontRows)
+                add(fontLabel)
                 add(lineHeightLabel)
                 add(marginLabel)
-                add(marginYLabel)
+                add(marginTopLabel)
+                add(marginBottomLabel)
                 add(pageModeLabel)
                 add(dirMapLabel)
                 add(longPressLabel)
@@ -886,6 +1013,7 @@ class ThemePanel(
                 fastJumpSecLabel, fastJumpChaptersLabel,
                 cornerTL, cornerTR, cornerBL, cornerBR,
                 updateLineLabel, speedTestBtn,
+                autoScrollLabel, scrollSpeedLabel, scrollModeLabel,
             )
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
             else -> contentAbout.findAllFocusableViews()
@@ -1005,10 +1133,6 @@ class ThemePanel(
 
     private fun consumeAdjust(dir: Int): Boolean {
         val focused = contentFocusables.firstOrNull { it.hasFocus() } ?: return false
-        if (focused in fontRows) {
-            moveFontSelection(dir)
-            return true
-        }
         when (focused) {
             fontSizeLabel -> { activity.stepFontSize(dir); refreshLayoutLabels() }
             boldLabel -> {
@@ -1021,9 +1145,11 @@ class ThemePanel(
                 refreshLayoutLabels()
                 activity.onTextColorChanged()
             }
+            fontLabel -> moveFontSelection(dir)
             lineHeightLabel -> adjLineHeight(if (dir > 0) 0.1f else -0.1f)
             marginLabel -> adjMargin(if (dir > 0) 8 else -8)
-            marginYLabel -> adjMarginY(if (dir > 0) 8 else -8)
+            marginTopLabel -> adjMarginTop(if (dir > 0) 8 else -8)
+            marginBottomLabel -> adjMarginBottom(if (dir > 0) 8 else -8)
             cornerTL -> cycleCorner(0, dir)
             cornerTR -> cycleCorner(1, dir)
             cornerBL -> cycleCorner(2, dir)
@@ -1040,6 +1166,21 @@ class ThemePanel(
                 refreshLayoutLabels()
             }
             updateLineLabel -> cycleUpdateSource(dir)
+            autoScrollLabel -> {
+                Theme.setAutoScroll(activity, !Theme.autoScroll(activity))
+                refreshLayoutLabels()
+                activity.onReaderModeChanged()
+            }
+            scrollSpeedLabel -> {
+                Theme.setScrollSpeed(activity, Theme.scrollSpeed(activity) + dir)
+                refreshLayoutLabels()
+                activity.onAutoScrollSpeedChanged()
+            }
+            scrollModeLabel -> {
+                Theme.setScrollAdaptive(activity, !Theme.scrollAdaptive(activity))
+                refreshLayoutLabels()
+                activity.onAutoScrollSpeedChanged()
+            }
             darkModeLabel -> toggleDarkMode()
             autoUpdateLabel -> {
                 Theme.setAutoCheckUpdate(activity, !Theme.autoCheckUpdate(activity))
@@ -1072,13 +1213,13 @@ class ThemePanel(
         activity.showToast("下载线路：${com.potaperper.wereadtv.update.UpdateManager.sourceLabel(activity)}")
     }
 
-    /** 左右键在预设文字颜色间循环 */
+    /** 左右键在字体列表间循环 */
     private fun moveFontSelection(dir: Int) {
         val idx = Theme.FONTS.indexOfFirst { it.first == selectedFont }.let { if (it < 0) 0 else it }
         val next = (idx + dir + Theme.FONTS.size) % Theme.FONTS.size
         selectedFont = Theme.FONTS[next].first
         Theme.setReaderFont(activity, selectedFont)
-        refreshFontRows()
+        refreshLayoutLabels()
         activity.onFontChanged()
     }
 
@@ -1099,8 +1240,14 @@ class ThemePanel(
         activity.onLayoutPrefChanged()
     }
 
-    private fun adjMarginY(delta: Int) {
-        Theme.setMarginYPx(activity, (Theme.marginYPx(activity) + delta).coerceIn(16, 160))
+    private fun adjMarginTop(delta: Int) {
+        Theme.setMarginTopPx(activity, Theme.marginTopPx(activity) + delta)
+        refreshLayoutLabels()
+        activity.onLayoutPrefChanged()
+    }
+
+    private fun adjMarginBottom(delta: Int) {
+        Theme.setMarginBottomPx(activity, Theme.marginBottomPx(activity) + delta)
         refreshLayoutLabels()
         activity.onLayoutPrefChanged()
     }

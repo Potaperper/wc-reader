@@ -154,6 +154,16 @@ class MainActivity : Activity() {
         readerView?.applyTheme()
     }
 
+    /** 自动滚动开关变化 */
+    fun onReaderModeChanged() {
+        readerView?.applyReaderMode()
+    }
+
+    /** 自动滚动速度/方式变化 */
+    fun onAutoScrollSpeedChanged() {
+        readerView?.applyAutoScrollSpeed()
+    }
+
     // ---------- 生命周期 ----------
 
     override fun onCreate(savedInstanceState: Bundle?) {

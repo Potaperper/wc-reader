@@ -61,9 +61,44 @@ object Theme {
     fun marginPx(ctx: Context): Int = prefs(ctx).getInt("marginPx", 72)
     fun setMarginPx(ctx: Context, v: Int) { prefs(ctx).edit().putInt("marginPx", v).apply() }
 
-    /** 上下边距（px），取值 20-160 */
+    /** 上下边距（旧字段，保留兼容） */
     fun marginYPx(ctx: Context): Int = prefs(ctx).getInt("marginYPx", 44)
-    fun setMarginYPx(ctx: Context, v: Int) { prefs(ctx).edit().putInt("marginYPx", v).apply() }
+    fun setMarginYPx(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("marginYPx", v).apply()
+    }
+
+    /** 上边距（px），旧版本没有该字段时回落到 marginYPx */
+    fun marginTopPx(ctx: Context): Int =
+        prefs(ctx).getInt("marginTopPx", prefs(ctx).getInt("marginYPx", 44))
+    fun setMarginTopPx(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("marginTopPx", v.coerceIn(16, 200)).apply()
+    }
+
+    /** 下边距（px） */
+    fun marginBottomPx(ctx: Context): Int =
+        prefs(ctx).getInt("marginBottomPx", prefs(ctx).getInt("marginYPx", 44))
+    fun setMarginBottomPx(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("marginBottomPx", v.coerceIn(16, 200)).apply()
+    }
+
+    // ---------- 自动滚动 ----------
+
+    fun autoScroll(ctx: Context): Boolean = prefs(ctx).getBoolean("autoScroll", false)
+    fun setAutoScroll(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("autoScroll", v).apply()
+    }
+
+    /** 滚动速度 1-10 */
+    fun scrollSpeed(ctx: Context): Int = prefs(ctx).getInt("scrollSpeed", 3)
+    fun setScrollSpeed(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("scrollSpeed", v.coerceIn(1, 10)).apply()
+    }
+
+    /** true=按可见字数自适应（阅读速度恒定），false=匀速像素滚动 */
+    fun scrollAdaptive(ctx: Context): Boolean = prefs(ctx).getBoolean("scrollAdaptive", true)
+    fun setScrollAdaptive(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("scrollAdaptive", v).apply()
+    }
 
     /** 翻页方式：true=瞬时跳页（跨越式），false=平滑滚动 */
     fun instantPage(ctx: Context): Boolean = prefs(ctx).getBoolean("instantPage", false)
@@ -93,6 +128,7 @@ object Theme {
 
     const val CORNER_TIME = "time"
     const val CORNER_CHAPTER = "chapter"
+    const val CORNER_CHAPTER_NAME = "chapterName"
     const val CORNER_PAGES = "pages"
     const val CORNER_CHAPTER_PERCENT = "chapterPercent"
     const val CORNER_BOOK_PERCENT = "bookPercent"
@@ -102,6 +138,7 @@ object Theme {
     val CORNER_MODES = listOf(
         CORNER_TIME to "时间",
         CORNER_CHAPTER to "章节号",
+        CORNER_CHAPTER_NAME to "章节名",
         CORNER_PAGES to "当前页/本章节页",
         CORNER_CHAPTER_PERCENT to "本章进度",
         CORNER_BOOK_PERCENT to "全书进度",

@@ -63,6 +63,10 @@ html,body{margin:0;padding:0;background:${Theme.toHex(bg)};height:100%;overflow:
 #pager sup.wr-note{font-size:0.68em;line-height:1;color:#3a7bd5;vertical-align:super;margin:0 1px;font-weight:normal;}
 /* 章尾注释块：默认隐藏，统一从注释面板查看 */
 #pager p.ft,#pager div.ft{display:none!important;}
+/* 连续滚动模式：取消多栏，按正常文档流纵向滚动 */
+html.wr-scroll, html.wr-scroll body{height:auto!important;overflow-y:auto!important;overflow-x:hidden!important;}
+html.wr-scroll #viewport{position:static!important;inset:auto!important;overflow:visible!important;}
+html.wr-scroll #pager{columns:auto!important;column-width:auto!important;height:auto!important;width:auto!important;transform:none!important;transition:none!important;}
 </style>
 <script>
 window.__page = 0;
@@ -70,12 +74,17 @@ window.__totalPages = 1;
 window.__themeBg = '${Theme.toHex(bg)}';
 window.__marginPx = 72;
 window.__marginYPx = 44;
+window.__marginTopPx = 44;
+window.__marginBottomPx = 44;
 window.__instant = false;
+window.__scrollMode = false;
+window.__autoRaf = 0;
 var GAP_FACTOR = 2;  /* 栏间距 = 2×边距，视觉上即左右页边距 */
 
 function pagerEl(){ return document.getElementById('pager'); }
 /** 多栏布局：列宽 = 屏宽 - 2×边距；gap 恰好补齐使每页平移正好一个屏宽 */
 function relayout(){
+  if (window.__scrollMode) return;
   var pager = pagerEl();
   var w = window.innerWidth;
   var colw = w - 2 * window.__marginPx;
@@ -129,31 +138,70 @@ function textOffsetOf(root, node, offset){
   }
   return -1;
 }
-/* 记录当前页左上角第一个字符在整章文本中的偏移 */
+/* 记录当前页/当前滚动位置左上角第一个字符在整章文本中的偏移 */
 window.capturePosition = function(){
   var pager = pagerEl();
-  var page = window.__page;
-  var percent = window.__totalPages > 1 ? page * 100 / (window.__totalPages - 1) : 0;
   var off = -1;
+  var percent = 0;
   try {
-    var unit = window.innerWidth;
-    var prevTr = pager.style.transition;
-    pager.style.transition = 'none';
-    pager.style.transform = 'translateX(' + (-page * unit) + 'px)';
-    var x = window.__marginPx + 6;
-    var y = window.__marginYPx + 10;
-    var r = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
-    if (r && pager.contains(r.startContainer)) {
-      off = textOffsetOf(pager, r.startContainer, r.startOffset);
+    if (window.__scrollMode) {
+      var r0 = document.caretRangeFromPoint ? document.caretRangeFromPoint(window.__marginPx + 6, window.__marginTopPx + 10) : null;
+      if (r0 && pager.contains(r0.startContainer)) {
+        off = textOffsetOf(pager, r0.startContainer, r0.startOffset);
+      }
+      var max0 = document.body.scrollHeight - window.innerHeight;
+      percent = max0 > 0 ? window.scrollY * 100 / max0 : 0;
+    } else {
+      var page = window.__page;
+      percent = window.__totalPages > 1 ? page * 100 / (window.__totalPages - 1) : 0;
+      var unit = window.innerWidth;
+      var prevTr = pager.style.transition;
+      pager.style.transition = 'none';
+      pager.style.transform = 'translateX(' + (-page * unit) + 'px)';
+      var x = window.__marginPx + 6;
+      var y = window.__marginTopPx + 10;
+      var r = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+      if (r && pager.contains(r.startContainer)) {
+        off = textOffsetOf(pager, r.startContainer, r.startOffset);
+      }
+      pager.style.transition = prevTr;
     }
-    pager.style.transition = prevTr;
   } catch(e) {}
   return off + ',' + percent;
 };
-/* 按字符偏移恢复页（排版变化后仍能回到同一段） */
+/* 按字符偏移恢复位置（排版变化后仍能回到同一段） */
 window.restorePosition = function(offset, percent){
-  relayout();
   var pager = pagerEl();
+  if (window.__scrollMode) {
+    var y = -1;
+    if (offset >= 0) {
+      try {
+        var w0 = document.createTreeWalker(pager, NodeFilter.SHOW_TEXT, null, false);
+        var a0 = 0, n0 = null, nn;
+        while ((nn = w0.nextNode())) {
+          if (a0 + nn.nodeValue.length >= offset) { n0 = nn; break; }
+          a0 += nn.nodeValue.length;
+        }
+        if (n0) {
+          var lo = Math.max(0, Math.min(offset - a0, n0.nodeValue.length));
+          var rr = document.createRange();
+          rr.setStart(n0, lo); rr.setEnd(n0, lo);
+          y = rr.getBoundingClientRect().top + window.scrollY;
+        }
+      } catch(e) {}
+    }
+    if (y >= 0) {
+      window.scrollTo(0, Math.max(0, y - window.__marginTopPx));
+    } else if (percent > 0) {
+      var mx = Math.max(0, document.body.scrollHeight - window.innerHeight);
+      window.scrollTo(0, mx * percent / 100);
+    } else {
+      window.scrollTo(0, 0);
+    }
+    window.updateCharsPerScreen();
+    return 0;
+  }
+  relayout();
   var page = 0;
   if (offset >= 0) {
     try {
@@ -188,7 +236,10 @@ window.restorePosition = function(offset, percent){
 };
 window.setZoom = function(fontPx, offset, percent){
   pagerEl().style.fontSize = fontPx + 'px';
-  requestAnimationFrame(function(){ requestAnimationFrame(function(){ restorePosition(offset, percent); }); });
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    restorePosition(offset, percent);
+    window.updateCharsPerScreen();
+  }); });
 };
 window.setFontFamily = function(family, bold, offset, percent){
   var st = document.getElementById('wr-font');
@@ -198,22 +249,105 @@ window.setFontFamily = function(family, bold, offset, percent){
   if (bold) css += '#pager, #pager *{font-weight:700 !important;}';
   st.textContent = css;
   pagerEl().style.fontFamily = family || '';
-  requestAnimationFrame(function(){ requestAnimationFrame(function(){ restorePosition(offset, percent); }); });
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    restorePosition(offset, percent);
+    window.updateCharsPerScreen();
+  }); });
 };
-window.setLayoutPrefs = function(lhRatio, marginPx, marginYPx, instant, offset, percent){
+window.setLayoutPrefs = function(lhRatio, marginPx, marginTopPx, marginBottomPx, instant, offset, percent){
   var pager = pagerEl();
   pager.style.lineHeight = lhRatio;
   window.__marginPx = marginPx;
-  window.__marginYPx = marginYPx;
-  pager.style.paddingTop = marginYPx + 'px';
-  pager.style.paddingBottom = marginYPx + 'px';
+  window.__marginTopPx = marginTopPx;
+  window.__marginBottomPx = marginBottomPx;
+  window.__marginYPx = marginTopPx;
+  pager.style.paddingLeft = marginPx + 'px';
+  pager.style.paddingRight = marginPx + 'px';
+  pager.style.paddingTop = marginTopPx + 'px';
+  pager.style.paddingBottom = marginBottomPx + 'px';
   window.__instant = instant;
-  requestAnimationFrame(function(){ requestAnimationFrame(function(){ restorePosition(offset, percent); }); });
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    restorePosition(offset, percent);
+    window.updateCharsPerScreen();
+  }); });
 };
 window.setTheme = function(bg, fg){
   window.__themeBg = bg;
   applyShellOverride();
-  pagerEl().style.color = fg;
+  var pager = pagerEl();
+  if (pager) {
+    pager.style.color = fg;
+    pager.style.setProperty('background-color', bg, 'important');
+  }
+};
+window.updateCharsPerScreen = function(){
+  var p = pagerEl();
+  if (!p) return;
+  var t = (p.innerText || '').length;
+  var h = p.scrollHeight || 1;
+  window.__charsPerScreen = Math.max(1, t * window.innerHeight / h);
+};
+window.setScrollMode = function(on){
+  window.__scrollMode = !!on;
+  document.documentElement.classList.toggle('wr-scroll', !!on);
+  if (!on) window.stopAutoScroll();
+  applyShellOverride();
+  if (!on) {
+    relayout();
+    goTo(window.__page || 0, true);
+  } else {
+    window.scrollTo(0, 0);
+    window.updateCharsPerScreen();
+  }
+};
+window.startAutoScroll = function(basePx, targetCps, adaptive){
+  window.stopAutoScroll();
+  if (!window.__scrollMode) return;
+  window.__autoBasePx = basePx;
+  window.__autoCps = targetCps;
+  window.__autoAdaptive = !!adaptive;
+  window.updateCharsPerScreen();
+  var last = performance.now();
+  var acc = 0;
+  var lastCalc = 0;
+  var px = basePx;
+  function step(t){
+    if (!window.__scrollMode || !window.__autoBasePx) return;
+    var dt = Math.min(0.1, (t - last) / 1000);
+    last = t;
+    if (window.__autoAdaptive) {
+      if (t - lastCalc > 800) {
+        lastCalc = t;
+        px = window.__autoCps / Math.max(1, window.__charsPerScreen) * window.innerHeight;
+      }
+    } else {
+      px = window.__autoBasePx;
+    }
+    acc += px * dt;
+    if (acc >= 1) {
+      var d = Math.floor(acc);
+      acc -= d;
+      window.scrollBy(0, d);
+    }
+    var max = document.body.scrollHeight - window.innerHeight;
+    if (max > 0 && window.scrollY >= max - 2) {
+      window.stopAutoScroll();
+      try { AndroidBridge.onScrollChapterEnd(); } catch(e){}
+      return;
+    }
+    window.__autoRaf = requestAnimationFrame(step);
+  }
+  window.__autoRaf = requestAnimationFrame(step);
+};
+window.stopAutoScroll = function(){
+  if (window.__autoRaf) { cancelAnimationFrame(window.__autoRaf); window.__autoRaf = 0; }
+};
+window.scrollPage = function(dir){
+  window.scrollBy(0, dir * window.innerHeight * 0.85);
+};
+window.scrollPercent = function(){
+  var max = Math.max(0, document.body.scrollHeight - window.innerHeight);
+  return max > 0 ? Math.min(100, window.scrollY * 100 / max) : 0;
 };
 window.loadChapterContent = function(bodyHtml, styleHtml){
   window.__rawBody = bodyHtml;
@@ -232,6 +366,14 @@ function renderCurrent(){
   applyShellOverride();
   window.__page = 0;
   requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    if (window.__scrollMode) {
+      window.scrollTo(0, 0);
+      window.updateCharsPerScreen();
+      window.__totalPages = 1;
+      pager.style.visibility = 'visible';
+      try { AndroidBridge.onRendered(1); } catch(e){}
+      return;
+    }
     goTo(0, true);
     pager.style.visibility = 'visible';
     try { AndroidBridge.onRendered(window.__totalPages); } catch(e){}
@@ -290,25 +432,39 @@ function extractNotes(root){
     if (!hasVisibleImg && (root.textContent || '').trim().length === 0) {
       root.innerHTML = '<p style="text-align:center;opacity:.6;margin-top:38vh;">本章为图片内容，加载失败</p>';
     }
-    goTo(window.__page, true);
+    if (!window.__scrollMode) goTo(window.__page, true);
   }, 1500);
 }
 function applyShellOverride(){
   var bg = window.__themeBg || '#161616';
   var de = document.documentElement;
   de.style.setProperty('background', bg, 'important');
-  de.style.setProperty('overflow', 'hidden', 'important');
   de.style.setProperty('width', '100%', 'important');
-  de.style.setProperty('height', '100%', 'important');
   var b = document.body;
   b.style.setProperty('background', bg, 'important');
-  b.style.setProperty('overflow', 'hidden', 'important');
   b.style.setProperty('margin', '0', 'important');
   b.style.setProperty('padding', '0', 'important');
   b.style.setProperty('width', '100%', 'important');
-  b.style.setProperty('height', '100%', 'important');
-  // 锁定滚动：任何横向溢出都不允许滚动页面（否则 fixed 定位的视口会整体偏移）
-  window.scrollTo(0, 0);
+  var pager = pagerEl();
+  if (pager) pager.style.setProperty('background-color', bg, 'important');
+  // 章节自带 CSS 可能给内容容器铺白底：统一强制透明，跟随主题
+  var th = document.getElementById('wr-theme-bg');
+  if (!th) { th = document.createElement('style'); th.id = 'wr-theme-bg'; document.head.appendChild(th); }
+  th.textContent = '#pager, #pager *:not(img){background-color:transparent !important;}';
+  if (window.__scrollMode) {
+    de.style.setProperty('overflow-y', 'auto', 'important');
+    de.style.setProperty('overflow-x', 'hidden', 'important');
+    de.style.setProperty('height', 'auto', 'important');
+    b.style.setProperty('overflow-y', 'visible', 'important');
+    b.style.setProperty('height', 'auto', 'important');
+  } else {
+    de.style.setProperty('overflow', 'hidden', 'important');
+    de.style.setProperty('height', '100%', 'important');
+    b.style.setProperty('overflow', 'hidden', 'important');
+    b.style.setProperty('height', '100%', 'important');
+    // 锁定滚动：任何横向溢出都不允许滚动页面（否则 fixed 定位的视口会整体偏移）
+    window.scrollTo(0, 0);
+  }
 }
 function resolveAssets(root){
   var base = 'https://res.weread.qq.com/wrepub/';
@@ -384,6 +540,16 @@ function fixSrc(el, base){
         override fun run() {
             refreshHud()
             mainHandler.postDelayed(this, 30_000)
+        }
+    }
+
+    /** 自动滚动时定期保存本地进度（防止进程被系统回收） */
+    private val autoSaveRunnable = object : Runnable {
+        override fun run() {
+            if (Theme.autoScroll(activity) && currentChapter() != null) {
+                saveLocalPosition(force = true)
+            }
+            mainHandler.postDelayed(this, 20_000)
         }
     }
 
@@ -509,6 +675,24 @@ function fixSrc(el, base){
             return true
         }
 
+        // ---------- 连续滚动模式：方向键手动滚动，暂停自动滚动 ----------
+        if (Theme.autoScroll(activity)) {
+            val down = event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+            val up = event.keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+            if (down || up) {
+                if (action == KeyEvent.ACTION_DOWN) {
+                    stopAutoScroll()
+                    webView.evaluateJavascript(
+                        "window.scrollPage(${if (down) 1 else -1})", null,
+                    )
+                    mainHandler.postDelayed({ refreshHud() }, 420)
+                }
+                return true
+            }
+        }
+
         // ---------- 方向键 ----------
         if (!isNext && !isPrev) {
             return when (event.keyCode) {
@@ -623,6 +807,7 @@ function fixSrc(el, base){
             barButton("返回阅读", barFg) { hideTopBar() },
             barButton("目录", barFg) { toggleCatalog(true) },
             barButton("注释", barFg) { requestNotes() },
+            barButton("滚动", barFg) { toggleAutoScroll() },
             barButton("字号", barFg) { activity.cycleFontSize() },
             barButton("设置", barFg) { activity.showThemePanel() },
         )
@@ -664,6 +849,9 @@ function fixSrc(el, base){
                     applyZoom()
                     applyLayoutPrefs()
                     applyFont()
+                    webView.evaluateJavascript(
+                        "window.setScrollMode(${Theme.autoScroll(activity)})", null,
+                    )
                     pendingContent?.let { (b, s) -> deliver(b, s) }
                 }
 
@@ -739,6 +927,7 @@ function fixSrc(el, base){
         addView(hudLayer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         refreshHudVisibility()
         mainHandler.postDelayed(clockRunnable, 30_000)
+        mainHandler.postDelayed(autoSaveRunnable, 20_000)
 
         // ---- 目录浮层（书名独立置顶，不随章节滚动）----
         val catBg = if (Theme.isDark(bg)) 0xF0141414.toInt() else 0xF0FAF7F0.toInt()
@@ -1054,11 +1243,91 @@ function fixSrc(el, base){
     }
 
     fun applyLayoutPrefs() {
+        val band = hudBandPx()
+        val topPad = Theme.marginTopPx(activity) +
+            (if (topHudVisible()) band else 0)
+        val botPad = Theme.marginBottomPx(activity) +
+            (if (bottomHudVisible()) band else 0)
+        // 四角信息与正文左右对齐
+        val hInset = Theme.marginPx(activity)
+        hudTopLeft.setPadding(hInset, dip(10), hInset, dip(4))
+        hudTopRight.setPadding(hInset, dip(10), hInset, dip(4))
+        hudBottomLeft.setPadding(hInset, dip(4), hInset, dip(10))
+        hudBottomRight.setPadding(hInset, dip(4), hInset, dip(10))
         capturePosition { off, pct ->
             webView.evaluateJavascript(
-                "window.setLayoutPrefs(${Theme.lineHeight(activity)}, ${Theme.marginPx(activity)}, ${Theme.marginYPx(activity)}, ${Theme.instantPage(activity)}, $off, $pct)",
+                "window.setLayoutPrefs(${Theme.lineHeight(activity)}, ${Theme.marginPx(activity)}, $topPad, $botPad, ${Theme.instantPage(activity)}, $off, $pct)",
                 null,
             )
+        }
+    }
+
+    private fun topHudVisible(): Boolean =
+        Theme.cornerMode(activity, 0) != Theme.CORNER_NONE ||
+            Theme.cornerMode(activity, 1) != Theme.CORNER_NONE
+
+    private fun bottomHudVisible(): Boolean =
+        Theme.cornerMode(activity, 2) != Theme.CORNER_NONE ||
+            Theme.cornerMode(activity, 3) != Theme.CORNER_NONE
+
+    private fun hudBandPx(): Int =
+        hudTopLeft.height.takeIf { it > 0 } ?: dip(44)
+
+    // ---------- 自动滚动 ----------
+
+    /** 应用/关闭连续滚动模式 */
+    fun applyReaderMode(announce: Boolean = true) {
+        val on = Theme.autoScroll(activity)
+        capturePosition { off, pct ->
+            webView.evaluateJavascript("window.setScrollMode($on)", null)
+            mainHandler.postDelayed({
+                webView.evaluateJavascript(
+                    "window.restorePosition($off, $pct)",
+                ) {
+                    if (on) startAutoScroll()
+                    refreshHud()
+                }
+            }, 350)
+        }
+        if (on && announce) activity.showToast("自动滚动已开启，按方向键可暂停")
+    }
+
+    private fun startAutoScroll() {
+        if (!Theme.autoScroll(activity)) return
+        val level = Theme.scrollSpeed(activity)
+        val adaptive = Theme.scrollAdaptive(activity)
+        val basePx = 5f + level * 8f
+        val cps = 4f + level * 2.5f
+        webView.evaluateJavascript(
+            "window.startAutoScroll($basePx, $cps, $adaptive)", null,
+        )
+    }
+
+    private fun stopAutoScroll() {
+        webView.evaluateJavascript("window.stopAutoScroll()", null)
+    }
+
+    /** 滚动速度/方式变化后重新启动（从当前位置继续） */
+    fun applyAutoScrollSpeed() {
+        if (!Theme.autoScroll(activity)) return
+        startAutoScroll()
+    }
+
+    /** 顶栏「滚动」按钮：开始/暂停自动滚动 */
+    private fun toggleAutoScroll() {
+        if (!Theme.autoScroll(activity)) {
+            activity.showToast("请先在 设置 → 功能 中开启自动滚动")
+            return
+        }
+        webView.evaluateJavascript("window.__autoRaf ? 1 : 0") { running ->
+            val isRunning = running?.contains("1") == true
+            if (isRunning) {
+                stopAutoScroll()
+                activity.showToast("自动滚动已暂停")
+            } else {
+                startAutoScroll()
+                activity.showToast("自动滚动已继续")
+            }
         }
     }
 
@@ -1072,8 +1341,15 @@ function fixSrc(el, base){
         refreshHud()
     }
 
-    /** 向 WebView 询问当前页/总页数，刷新四角信息 */
+    /** 向 WebView 询问当前页/总页数（或滚动百分比），刷新四角信息 */
     private fun refreshHud() {
+        if (Theme.autoScroll(activity)) {
+            webView.evaluateJavascript("window.scrollPercent()") { info ->
+                val pct = info?.trim()?.trim('"')?.toFloatOrNull() ?: 0f
+                updateHud(0, 100, pct)
+            }
+            return
+        }
         webView.evaluateJavascript("window.pageInfo()") { info ->
             val raw = info?.trim()?.trim('"') ?: return@evaluateJavascript
             val parts = raw.split(",")
@@ -1085,23 +1361,30 @@ function fixSrc(el, base){
         }
     }
 
-    private fun updateHud(page: Int, total: Int) {
-        setCorner(hudTopLeft, 0, page, total)
-        setCorner(hudTopRight, 1, page, total)
-        setCorner(hudBottomLeft, 2, page, total)
-        setCorner(hudBottomRight, 3, page, total)
+    private fun updateHud(page: Int, total: Int, scrollPct: Float = -1f) {
+        setCorner(hudTopLeft, 0, page, total, scrollPct)
+        setCorner(hudTopRight, 1, page, total, scrollPct)
+        setCorner(hudBottomLeft, 2, page, total, scrollPct)
+        setCorner(hudBottomRight, 3, page, total, scrollPct)
     }
 
-    private fun setCorner(v: TextView, corner: Int, page: Int, total: Int) {
+    private fun setCorner(v: TextView, corner: Int, page: Int, total: Int, scrollPct: Float) {
         val chTotal = chapters.size.coerceAtLeast(1)
         val pages = total.coerceAtLeast(1)
-        val overall = ((currentChapterIdx + (page + 1f) / pages) / chTotal * 100f)
+        val chapterPct = if (scrollPct >= 0f) {
+            scrollPct.toInt().coerceIn(0, 100)
+        } else {
+            ((page + 1) * 100 / pages).coerceIn(0, 100)
+        }
+        val frac = if (scrollPct >= 0f) scrollPct / 100f else (page + 1f) / pages
+        val overall = ((currentChapterIdx + frac) / chTotal * 100f)
             .toInt().coerceIn(0, 100)
-        val chapterPct = ((page + 1) * 100 / pages).coerceIn(0, 100)
         val text = when (Theme.cornerMode(activity, corner)) {
             Theme.CORNER_TIME -> clockText()
             Theme.CORNER_CHAPTER -> "第 ${currentChapterIdx + 1} / $chTotal 章"
-            Theme.CORNER_PAGES -> "第 ${page + 1} / $pages 页"
+            Theme.CORNER_CHAPTER_NAME -> currentChapter()?.title ?: ""
+            Theme.CORNER_PAGES ->
+                if (scrollPct >= 0f) "本章 $chapterPct%" else "第 ${page + 1} / $pages 页"
             Theme.CORNER_CHAPTER_PERCENT -> "本章 $chapterPct%"
             Theme.CORNER_BOOK_PERCENT -> "全书 $overall%"
             Theme.CORNER_BOOK -> book.title
@@ -1223,6 +1506,7 @@ function fixSrc(el, base){
     }
 
     private fun showTopBar() {
+        stopAutoScroll()
         topBar.visibility = VISIBLE
         topBarHint.visibility = VISIBLE
         topBar.findFocus()?.clearFocus()
@@ -1234,6 +1518,7 @@ function fixSrc(el, base){
         topBarHint.visibility = GONE
         topBar.visibility = GONE
         webView.requestFocus()
+        if (Theme.autoScroll(activity)) mainHandler.postDelayed({ startAutoScroll() }, 250)
     }
 
     private fun exitReader() {
@@ -1264,7 +1549,7 @@ function fixSrc(el, base){
     // ---------- 目录 ----------
 
     private fun toggleCatalog(show: Boolean) {
-        if (!show) exitCatalogFastModeSilently()
+        if (show) stopAutoScroll() else exitCatalogFastModeSilently()
         catalogOverlay.visibility = if (show) VISIBLE else GONE
         if (show) {
             resetFastBanner()
@@ -1274,6 +1559,7 @@ function fixSrc(el, base){
             }
         } else {
             webView.requestFocus()
+            if (Theme.autoScroll(activity)) mainHandler.postDelayed({ startAutoScroll() }, 250)
         }
     }
 
@@ -1309,6 +1595,7 @@ function fixSrc(el, base){
             return
         }
         hideTopBar()  // 收起顶栏，避免遮挡注释浮窗
+        stopAutoScroll()
         notesDetail.visibility = GONE
         notesOverlay.visibility = VISIBLE
         notesList.post {
@@ -1334,6 +1621,7 @@ function fixSrc(el, base){
         } else {
             notesOverlay.visibility = GONE
             webView.requestFocus()
+            if (Theme.autoScroll(activity)) mainHandler.postDelayed({ startAutoScroll() }, 250)
         }
     }
 
@@ -1362,6 +1650,23 @@ function fixSrc(el, base){
             mainHandler.post {
                 loadingText.visibility = GONE
                 when {
+                    Theme.autoScroll(activity) -> {
+                        // 滚动模式：按待恢复位置定位，然后继续自动滚动
+                        val off = pendingOffset
+                        val pct = pendingPercent
+                        pendingOffset = -1
+                        pendingPercent = 0f
+                        webView.evaluateJavascript(
+                            "window.restorePosition($off, $pct)",
+                        ) {
+                            if (off < 0 && pct <= 0f) {
+                                lastOffset = -1
+                                lastPercent = 0f
+                            }
+                            mainHandler.postDelayed({ startAutoScroll() }, 250)
+                            refreshHud()
+                        }
+                    }
                     pendingLastPage -> {
                         pendingLastPage = false
                         webView.evaluateJavascript("window.gotoLast()") { refreshHud() }
@@ -1380,6 +1685,19 @@ function fixSrc(el, base){
                         }
                     }
                     else -> refreshHud()
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun onScrollChapterEnd() {
+            mainHandler.post {
+                if (!Theme.autoScroll(activity)) return@post
+                val target = currentChapterIdx + 1
+                if (target in chapters.indices) {
+                    loadChapter(target, 0, 0f)
+                } else {
+                    activity.showToast("已经是最后一章")
                 }
             }
         }
@@ -1417,6 +1735,7 @@ function fixSrc(el, base){
         if (released) return
         released = true
         mainHandler.removeCallbacks(clockRunnable)
+        mainHandler.removeCallbacks(autoSaveRunnable)
         webView.apply {
             stopLoading()
             (parent as? ViewGroup)?.removeView(this)
