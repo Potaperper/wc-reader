@@ -550,7 +550,7 @@ class ThemePanel(
             addView(longPressLabel)
             addView(space(dip(10)))
             addView(TextView(activity).apply {
-                text = "聚焦后用左右键调整，更改立即生效。\n四角信息会自动在上/下边距外预留空间，不会遮挡正文。"
+                text = "聚焦后用左右键调整，更改立即生效。\n四角信息悬浮显示，不占用上/下边距。"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
                 setLineSpacing(dip(2).toFloat(), 1.15f)

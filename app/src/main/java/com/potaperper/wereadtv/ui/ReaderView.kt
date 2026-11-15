@@ -138,6 +138,25 @@ function textOffsetOf(root, node, offset){
   }
   return -1;
 }
+/** 取从某个字符偏移开始到本章结尾的纯文本（供 TTS 朗读） */
+window.textFromOffset = function(offset){
+  var pager = pagerEl();
+  var walker = document.createTreeWalker(pager, NodeFilter.SHOW_TEXT, null, false);
+  var acc = 0, out = '', n;
+  while ((n = walker.nextNode())) {
+    var len = n.nodeValue.length;
+    var el = n.parentElement;
+    if (el && el.closest('p.ft, div.ft, sup.wr-note')) { acc += len; continue; }
+    if (acc + len > offset) {
+      var st = Math.max(0, offset - acc);
+      out += n.nodeValue.substring(st);
+      var p = n.parentNode;
+      if (p && /^(P|DIV|H1|H2|H3|H4|LI|BLOCKQUOTE|BR)$/.test(p.nodeName)) out += '\n';
+    }
+    acc += len;
+  }
+  return out;
+};
 /* 记录当前页/当前滚动位置左上角第一个字符在整章文本中的偏移 */
 window.capturePosition = function(){
   var pager = pagerEl();
@@ -572,6 +591,7 @@ function fixSrc(el, base){
 
     /** 顶栏三个按钮，用于循环移焦点 */
     private var topBarFocusables: List<TextView> = emptyList()
+    private var ttsButton: TextView? = null
 
     private fun moveTopBarFocus(dir: Int) {
         val list = topBarFocusables
@@ -817,10 +837,11 @@ function fixSrc(el, base){
             barButton("返回阅读", barFg) { hideTopBar() },
             barButton("目录", barFg) { toggleCatalog(true) },
             barButton("注释", barFg) { requestNotes() },
+            barButton("朗读", barFg) { toggleTts() },
             barButton("滚动", barFg) { toggleAutoScroll() },
-            barButton("字号", barFg) { activity.cycleFontSize() },
             barButton("设置", barFg) { activity.showThemePanel() },
         )
+        ttsButton = topBarButtons[3]
         val btnRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1254,18 +1275,15 @@ function fixSrc(el, base){
     }
 
     fun applyLayoutPrefs() {
-        val band = hudBandPx()
-        val topPad = Theme.marginTopPx(activity) +
-            (if (topHudVisible()) band else 0)
-        val botPad = Theme.marginBottomPx(activity) +
-            (if (bottomHudVisible()) band else 0)
-        // 四角信息与正文左右对齐
+        val topPad = Theme.marginTopPx(activity)
+        val botPad = Theme.marginBottomPx(activity)
+        // 四角信息与正文左右对齐（HUD 悬浮，不占用边距）
         updateHudStyle()
         val hInset = Theme.marginPx(activity)
-        hudTopLeft.setPadding(hInset, dip(10), hInset, dip(4))
-        hudTopRight.setPadding(hInset, dip(10), hInset, dip(4))
-        hudBottomLeft.setPadding(hInset, dip(4), hInset, dip(10))
-        hudBottomRight.setPadding(hInset, dip(4), hInset, dip(10))
+        hudTopLeft.setPadding(hInset, dip(2), hInset, dip(2))
+        hudTopRight.setPadding(hInset, dip(2), hInset, dip(2))
+        hudBottomLeft.setPadding(hInset, dip(2), hInset, dip(2))
+        hudBottomRight.setPadding(hInset, dip(2), hInset, dip(2))
         capturePosition { off, pct ->
             webView.evaluateJavascript(
                 "window.setLayoutPrefs(${Theme.lineHeight(activity)}, ${Theme.marginPx(activity)}, $topPad, $botPad, ${Theme.instantPage(activity)}, $off, $pct)",
@@ -1274,29 +1292,12 @@ function fixSrc(el, base){
         }
     }
 
-    private fun topHudVisible(): Boolean =
-        Theme.cornerMode(activity, 0) != Theme.CORNER_NONE ||
-            Theme.cornerMode(activity, 1) != Theme.CORNER_NONE
-
-    private fun bottomHudVisible(): Boolean =
-        Theme.cornerMode(activity, 2) != Theme.CORNER_NONE ||
-            Theme.cornerMode(activity, 3) != Theme.CORNER_NONE
-
-    private fun hudBandPx(): Int =
-        hudTopLeft.height.takeIf { it > 0 } ?: dip(44)
-
-    /** 自动滚动时正文会从四角信息下面滑过，给角标加一层同色底避免重叠 */
+    /** 四角信息：悬浮透明显示，不使用任何底色 */
     private fun updateHudStyle() {
-        val bg = Theme.bgColor(activity)
-        val showChip = Theme.autoScroll(activity)
-        fun chip(): GradientDrawable? = if (!showChip) null else GradientDrawable().apply {
-            setColor(if (Theme.isDark(bg)) 0xF0181818.toInt() else 0xF0F2EDE2.toInt())
-            cornerRadius = dip(10).toFloat()
-        }
-        hudTopLeft.background = chip()
-        hudTopRight.background = chip()
-        hudBottomLeft.background = chip()
-        hudBottomRight.background = chip()
+        hudTopLeft.background = null
+        hudTopRight.background = null
+        hudBottomLeft.background = null
+        hudBottomRight.background = null
     }
 
     // ---------- 自动滚动 ----------
@@ -1305,7 +1306,9 @@ function fixSrc(el, base){
     fun applyReaderMode(announce: Boolean = true) {
         val on = Theme.autoScroll(activity)
         updateHudStyle()
-        capturePosition { off, pct ->
+        capturePosition { off0, pct0 ->
+            val off = if (off0 >= 0) off0 else lastOffset
+            val pct = if (pct0 > 0f) pct0 else lastPercent
             webView.evaluateJavascript("window.setScrollMode($on)", null)
             mainHandler.postDelayed({
                 webView.evaluateJavascript(
@@ -1314,9 +1317,9 @@ function fixSrc(el, base){
                     if (on) startAutoScroll()
                     refreshHud()
                 }
-            }, 350)
+            }, 450)
         }
-        if (on && announce) activity.showToast("自动滚动已开启，按方向键可暂停")
+        if (on && announce) activity.showToast("已进入连续滚动，方向键可前后滚动")
     }
 
     private fun startAutoScroll() {
@@ -1340,22 +1343,166 @@ function fixSrc(el, base){
         startAutoScroll()
     }
 
-    /** 顶栏「滚动」按钮：开始/暂停自动滚动 */
+    /** 顶栏「滚动」按钮：直接进入/退出连续滚动模式 */
     private fun toggleAutoScroll() {
-        if (!Theme.autoScroll(activity)) {
-            activity.showToast("请先在 设置 → 功能 中开启自动滚动")
+        val on = !Theme.autoScroll(activity)
+        Theme.setAutoScroll(activity, on)
+        applyReaderMode()
+    }
+
+    // ---------- 系统 TTS 朗读 ----------
+
+    private var tts: android.speech.tts.TextToSpeech? = null
+    private var ttsReady = false
+    private var ttsReading = false
+    private var ttsWantStart = false
+    private var ttsPendingNext = false
+    private var ttsLastId = ""
+
+    private fun toggleTts() {
+        if (ttsReading) {
+            stopTts()
             return
         }
-        webView.evaluateJavascript("window.__autoRaf ? 1 : 0") { running ->
-            val isRunning = running?.contains("1") == true
-            if (isRunning) {
-                stopAutoScroll()
-                activity.showToast("自动滚动已暂停")
-            } else {
-                startAutoScroll()
-                activity.showToast("自动滚动已继续")
+        if (tts == null) {
+            ttsWantStart = true
+            initTts()
+            return
+        }
+        if (!ttsReady) {
+            ttsWantStart = true
+            activity.showToast("语音引擎尚未就绪")
+            return
+        }
+        startTtsInternal()
+    }
+
+    private fun initTts() {
+        activity.showToast("正在初始化语音…")
+        tts = android.speech.tts.TextToSpeech(activity) { status ->
+            mainHandler.post {
+                if (status != android.speech.tts.TextToSpeech.SUCCESS) {
+                    activity.showToast("TTS 初始化失败，请检查电视语音引擎")
+                    ttsWantStart = false
+                    return@post
+                }
+                val r = tts?.setLanguage(java.util.Locale.CHINA)
+                ttsReady = r != android.speech.tts.TextToSpeech.LANG_MISSING_DATA &&
+                    r != android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED
+                tts?.setSpeechRate(1.0f)
+                tts?.setOnUtteranceProgressListener(
+                    object : android.speech.tts.UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {}
+                        override fun onDone(utteranceId: String?) {
+                            mainHandler.post { onTtsDone(utteranceId ?: "") }
+                        }
+
+                        @Deprecated("Deprecated in Java")
+                        override fun onError(utteranceId: String?) {
+                            mainHandler.post { if (ttsReading) stopTts() }
+                        }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            mainHandler.post { if (ttsReading) stopTts() }
+                        }
+                    },
+                )
+                if (!ttsReady) {
+                    activity.showToast("电视缺少中文语音包，请在系统设置中安装 TTS 引擎")
+                    ttsWantStart = false
+                } else if (ttsWantStart) {
+                    ttsWantStart = false
+                    startTtsInternal()
+                }
             }
         }
+    }
+
+    private fun startTtsInternal() {
+        if (ttsReading) return
+        stopAutoScroll()
+        capturePosition { off, _ ->
+            val o = if (off >= 0) off else lastOffset
+            webView.evaluateJavascript("window.textFromOffset($o)") { raw ->
+                val text = runCatching {
+                    org.json.JSONTokener(raw ?: "").nextValue() as String
+                }.getOrNull() ?: ""
+                if (text.isBlank()) {
+                    activity.showToast("本章没有可朗读的文字")
+                    return@evaluateJavascript
+                }
+                val chunks = chunkForTts(text)
+                if (chunks.isEmpty()) {
+                    activity.showToast("本章没有可朗读的文字")
+                    return@evaluateJavascript
+                }
+                ttsReading = true
+                ttsPendingNext = false
+                updateTtsButton()
+                val stamp = System.currentTimeMillis()
+                ttsLastId = "wc-$stamp-${chunks.size - 1}"
+                chunks.forEachIndexed { i, chunk ->
+                    val id = if (i == chunks.size - 1) ttsLastId else "wc-$stamp-$i"
+                    tts?.speak(
+                        chunk,
+                        if (i == 0) android.speech.tts.TextToSpeech.QUEUE_FLUSH
+                        else android.speech.tts.TextToSpeech.QUEUE_ADD,
+                        null,
+                        id,
+                    )
+                }
+                activity.showToast("开始朗读本章")
+            }
+        }
+    }
+
+    private fun onTtsDone(id: String) {
+        if (!ttsReading) return
+        if (id != ttsLastId) return
+        val next = currentChapterIdx + 1
+        if (next in chapters.indices) {
+            ttsPendingNext = true
+            loadChapter(next, 0, 0f)
+        } else {
+            stopTts()
+            activity.showToast("全书朗读完成")
+        }
+    }
+
+    private fun stopTts() {
+        ttsReading = false
+        ttsPendingNext = false
+        tts?.stop()
+        updateTtsButton()
+        activity.showToast("已停止朗读")
+    }
+
+    private fun updateTtsButton() {
+        ttsButton?.text = if (ttsReading) "停止朗读" else "朗读"
+    }
+
+    /** 按句子切成适合 TTS 的短段 */
+    private fun chunkForTts(text: String): List<String> {
+        val out = ArrayList<String>()
+        var start = 0
+        val maxLen = 1800
+        while (start < text.length) {
+            var end = minOf(start + maxLen, text.length)
+            if (end < text.length) {
+                val candidates = intArrayOf(
+                    text.lastIndexOf('。', end - 1),
+                    text.lastIndexOf('！', end - 1),
+                    text.lastIndexOf('？', end - 1),
+                    text.lastIndexOf('\n', end - 1),
+                )
+                val idx = candidates.max()
+                if (idx > start + 200) end = idx + 1
+            }
+            val s = text.substring(start, end).trim()
+            if (s.isNotEmpty()) out.add(s)
+            start = end
+        }
+        return out
     }
 
     // ---------- 四角信息 ----------
@@ -1545,10 +1692,15 @@ function fixSrc(el, base){
         topBarHint.visibility = GONE
         topBar.visibility = GONE
         webView.requestFocus()
-        if (Theme.autoScroll(activity)) mainHandler.postDelayed({ startAutoScroll() }, 250)
+        if (Theme.autoScroll(activity) && !ttsReading) mainHandler.postDelayed({ startAutoScroll() }, 250)
     }
 
     private fun exitReader() {
+        if (ttsReading) {
+            ttsReading = false
+            tts?.stop()
+            updateTtsButton()
+        }
         saveProgress()
         onBackToShelf()
     }
@@ -1586,7 +1738,7 @@ function fixSrc(el, base){
             }
         } else {
             webView.requestFocus()
-            if (Theme.autoScroll(activity)) mainHandler.postDelayed({ startAutoScroll() }, 250)
+            if (Theme.autoScroll(activity) && !ttsReading) mainHandler.postDelayed({ startAutoScroll() }, 250)
         }
     }
 
@@ -1648,7 +1800,7 @@ function fixSrc(el, base){
         } else {
             notesOverlay.visibility = GONE
             webView.requestFocus()
-            if (Theme.autoScroll(activity)) mainHandler.postDelayed({ startAutoScroll() }, 250)
+            if (Theme.autoScroll(activity) && !ttsReading) mainHandler.postDelayed({ startAutoScroll() }, 250)
         }
     }
 
@@ -1676,6 +1828,12 @@ function fixSrc(el, base){
         fun onRendered(totalPages: Int) {
             mainHandler.post {
                 loadingText.visibility = GONE
+                if (ttsPendingNext && ttsReading) {
+                    ttsPendingNext = false
+                    mainHandler.postDelayed({ startTtsInternal() }, 300)
+                    refreshHud()
+                    return@post
+                }
                 when {
                     Theme.autoScroll(activity) -> {
                         // 滚动模式：按待恢复位置定位，然后继续自动滚动
@@ -1763,6 +1921,12 @@ function fixSrc(el, base){
         released = true
         mainHandler.removeCallbacks(clockRunnable)
         mainHandler.removeCallbacks(autoSaveRunnable)
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (_: Exception) {
+        }
+        tts = null
         webView.apply {
             stopLoading()
             (parent as? ViewGroup)?.removeView(this)
