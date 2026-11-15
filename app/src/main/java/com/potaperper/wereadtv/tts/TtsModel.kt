@@ -1,4 +1,4 @@
-package com.potaperper.wereadtv.tts
+﻿package com.potaperper.wereadtv.tts
 
 import android.content.Context
 import com.potaperper.wereadtv.update.UpdateManager
@@ -15,38 +15,30 @@ import java.util.zip.ZipInputStream
  * 模型不随 APK 打包，首次使用朗读时提示下载。
  */
 object TtsModel {
-    const val MODEL_ID = "xiaoya-int8"
+    const val MODEL_ID = "aishell3"
     const val MODEL_URL =
-        "https://github.com/Potaperper/wc-reader/releases/download/v1.0.16/WCReader-tts-xiaoya-int8.zip"
-    const val SIZE_BYTES = 13_770_350L
+        "https://github.com/Potaperper/wc-reader/releases/download/v1.0.18/WCReader-tts-aishell3.zip"
+    const val SIZE_BYTES = 28_003_993L
 
-    private const val MODEL_FILE = "zh_CN-xiao_ya-medium.onnx"
+    private const val MODEL_FILE = "model.onnx"
     private const val TOKENS = "tokens.txt"
     private const val LEXICON = "lexicon.txt"
-    private const val PHONE_FST = "phone.fst"
-    private const val DATE_FST = "date.fst"
-    private const val NUMBER_FST = "number.fst"
+    
 
     fun dir(ctx: Context): File =
         File(ctx.getExternalFilesDir(null), "tts/$MODEL_ID")
 
     fun isReady(ctx: Context): Boolean {
         val d = dir(ctx)
-        return File(d, MODEL_FILE).let { it.exists() && it.length() > 10_000_000 } &&
+        return File(d, MODEL_FILE).let { it.exists() && it.length() > 20_000_000 } &&
             File(d, TOKENS).exists() &&
-            File(d, LEXICON).exists() &&
-            File(d, PHONE_FST).exists()
+            File(d, LEXICON).exists()
     }
 
     fun modelPath(ctx: Context): String = File(dir(ctx), MODEL_FILE).absolutePath
     fun tokensPath(ctx: Context): String = File(dir(ctx), TOKENS).absolutePath
     fun lexiconPath(ctx: Context): String = File(dir(ctx), LEXICON).absolutePath
-    fun ruleFsts(ctx: Context): String {
-        val d = dir(ctx)
-        return listOf(PHONE_FST, DATE_FST, NUMBER_FST)
-            .map { File(d, it).absolutePath }
-            .joinToString(",")
-    }
+    fun ruleFsts(ctx: Context): String = ""
 
     /**
      * 下载并解压模型：优先使用更新下载里测速选中的线路，失败自动换线路，支持断点续传。
@@ -72,6 +64,8 @@ object TtsModel {
 
         onStatus("正在解压模型…")
         onProgress(92)
+        // 清理旧的小雅模型，释放空间
+        File(ctx.getExternalFilesDir(null), "tts/xiaoya-int8").deleteRecursively()
         val target = dir(ctx)
         val tmp = File(ctx.getExternalFilesDir(null), "tts/${MODEL_ID}.tmp")
         tmp.deleteRecursively()

@@ -11,8 +11,8 @@ android {
         applicationId = "com.potaperper.wereadtv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 18
-        versionName = "1.0.17"
+        versionCode = 19
+        versionName = "1.0.18"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

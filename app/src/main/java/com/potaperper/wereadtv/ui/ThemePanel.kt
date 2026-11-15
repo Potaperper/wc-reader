@@ -763,7 +763,7 @@ class ThemePanel(
         scrollModeLabel = prefRow("滚动方式")
         scrollKeyLabel = prefRow("方向键滚动")
         ttsModelLabel = prefRow("朗读模型")
-        ttsDownloadBtn = actionButton("下载语音模型（约 14MB）") {
+        ttsDownloadBtn = actionButton("下载语音模型（约 28MB）") {
             activity.downloadTtsModel { msg ->
                 refreshLayoutLabels()
                 activity.showToast(msg)
@@ -823,7 +823,7 @@ class ThemePanel(
             addView(ttsModelLabel)
             addView(ttsDownloadBtn)
             addView(TextView(activity).apply {
-                text = "使用小雅 int8 中文模型（约 14MB，模型仅供非商业使用），首次需下载，之后完全离线、不依赖系统语音引擎。"
+                text = "使用 AISHELL-3 int8 中文模型（约 28MB，174 音色），首次需下载，之后完全离线、不依赖系统语音引擎。"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
                 setLineSpacing(dip(3).toFloat(), 1.15f)
@@ -869,7 +869,7 @@ class ThemePanel(
             "滚动速度" -> "${Theme.scrollSpeed(activity)} 级"
             "滚动方式" -> if (Theme.scrollAdaptive(activity)) "按字数" else "匀速"
             "方向键滚动" -> "${Theme.scrollKeyLines(activity)} 行"
-            "朗读模型" -> if (com.potaperper.wereadtv.tts.TtsModel.isReady(activity)) "已就绪（小雅 int8）" else "未下载"
+            "朗读模型" -> if (com.potaperper.wereadtv.tts.TtsModel.isReady(activity)) "已就绪（AISHELL-3）" else "未下载"
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
             "自动检查更新" -> if (Theme.autoCheckUpdate(activity)) "开启" else "关闭"
@@ -914,7 +914,7 @@ class ThemePanel(
                     stylePrefRow(ttsModelLabel, "朗读模型", ttsModelLabel.hasFocus())
                     ttsDownloadBtn.text =
                         if (com.potaperper.wereadtv.tts.TtsModel.isReady(activity)) "重新下载语音模型"
-                        else "下载语音模型（约 14MB）"
+                        else "下载语音模型（约 28MB）"
                 }
             }
         }

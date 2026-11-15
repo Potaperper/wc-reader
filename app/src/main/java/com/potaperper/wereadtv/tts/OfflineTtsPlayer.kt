@@ -54,7 +54,7 @@ class OfflineTtsPlayer(private val ctx: Context) {
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
                 )
-                val bufferSize = maxOf(minBuf, sampleRate / 2 * 2)
+                val bufferSize = maxOf(minBuf, sampleRate * 2)
                 val attr = AudioAttributes.Builder()
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -64,39 +64,47 @@ class OfflineTtsPlayer(private val ctx: Context) {
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .setSampleRate(sampleRate)
                     .build()
-                at = AudioTrack(
+                val audioTrack = AudioTrack(
                     attr, format, bufferSize, AudioTrack.MODE_STREAM,
                     AudioManager.AUDIO_SESSION_ID_GENERATE,
                 )
-                track = at
-                at.play()
+                at = audioTrack
+                track = audioTrack
+                audioTrack.play()
                 var started = false
                 for ((idx, chunk) in chunks.withIndex()) {
                     if (stopFlag) break
-                    val audio = engine.generate(chunk, 0, 1.0f)
-                    if (audio.samples.isEmpty()) continue
-                    if (!started) {
-                        started = true
-                        onStatus("开始播放")
+                    // 边合成边播放：回调里拿到一批样本就写入 AudioTrack
+                    engine.generateWithCallback(chunk, 0, 1.0f) { samples ->
+                        if (stopFlag) {
+                            1
+                        } else {
+                            if (!started) {
+                                started = true
+                                onStatus("开始播放")
+                                android.util.Log.i("OfflineTts", "first chunk chars=${chunk.length}")
+                            }
+                            val pcm = ShortArray(samples.size) { i ->
+                                (samples[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                            }
+                            var offset = 0
+                            while (offset < pcm.size && !stopFlag) {
+                                val n = audioTrack.write(
+                                    pcm, offset, pcm.size - offset,
+                                    AudioTrack.WRITE_BLOCKING,
+                                )
+                                if (n <= 0) break
+                                offset += n
+                            }
+                            if (stopFlag) 1 else 0
+                        }
                     }
                     if (idx == 0) {
-                        android.util.Log.i(
-                            "OfflineTts",
-                            "first chunk chars=${chunk.length} samples=${audio.samples.size}",
-                        )
-                    }
-                    val pcm = ShortArray(audio.samples.size) { i ->
-                        (audio.samples[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-                    }
-                    var offset = 0
-                    while (offset < pcm.size && !stopFlag) {
-                        val n = at.write(pcm, offset, pcm.size - offset, AudioTrack.WRITE_BLOCKING)
-                        if (n <= 0) break
-                        offset += n
+                        android.util.Log.i("OfflineTts", "first sentence done")
                     }
                 }
-                try { at.stop() } catch (_: Exception) {}
-                at.release()
+                try { audioTrack.stop() } catch (_: Exception) {}
+                audioTrack.release()
                 track = null
                 if (!stopFlag) {
                     speaking = false
@@ -150,7 +158,7 @@ class OfflineTtsPlayer(private val ctx: Context) {
         )
         val model = OfflineTtsModelConfig(
             vits = vits,
-            numThreads = 2,
+            numThreads = 4,
             debug = false,
             provider = "cpu",
         )

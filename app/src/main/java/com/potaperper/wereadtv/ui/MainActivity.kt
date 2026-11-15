@@ -1,4 +1,4 @@
-package com.potaperper.wereadtv.ui
+﻿package com.potaperper.wereadtv.ui
 
 import android.app.Activity
 import android.content.Context
@@ -795,7 +795,7 @@ class MainActivity : Activity() {
             setTextColor(0xFFEAEAEE.toInt())
         }
         val msg = TextView(this).apply {
-            text = "离线朗读使用 sherpa-onnx + 小雅 int8 模型，首次需要下载约 14MB，之后完全离线。"
+            text = "离线朗读使用 sherpa-onnx + AISHELL-3 int8 模型，首次需要下载约 28MB，之后完全离线。"
             textSize = 15f
             setTextColor(0xFF9A9AA2.toInt())
             setLineSpacing(6f, 1.2f)
