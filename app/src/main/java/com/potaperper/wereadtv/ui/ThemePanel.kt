@@ -86,6 +86,8 @@ class ThemePanel(
     private lateinit var scrollSpeedLabel: TextView
     private lateinit var scrollModeLabel: TextView
     private lateinit var scrollKeyLabel: TextView
+    private lateinit var ttsModelLabel: TextView
+    private lateinit var ttsDownloadBtn: TextView
     private lateinit var silentUpdateLabel: TextView
 
     // ---- 背景控件 ----
@@ -748,6 +750,13 @@ class ThemePanel(
         scrollSpeedLabel = prefRow("滚动速度")
         scrollModeLabel = prefRow("滚动方式")
         scrollKeyLabel = prefRow("方向键滚动")
+        ttsModelLabel = prefRow("朗读模型")
+        ttsDownloadBtn = actionButton("下载语音模型（约 14MB）") {
+            activity.downloadTtsModel { msg ->
+                refreshLayoutLabels()
+                activity.showToast(msg)
+            }
+        }
         refreshLayoutLabels()
 
         val col = LinearLayout(activity).apply {
@@ -796,6 +805,16 @@ class ThemePanel(
                 textSize = 12f
                 setTextColor(TEXT_SUB)
                 setLineSpacing(dip(3).toFloat(), 1.15f)
+                setPadding(dip(4), dip(4), dip(4), dip(18))
+            })
+            addView(sectionTitle("离线朗读（sherpa-onnx）"))
+            addView(ttsModelLabel)
+            addView(ttsDownloadBtn)
+            addView(TextView(activity).apply {
+                text = "使用小雅 int8 中文模型（约 14MB，模型仅供非商业使用），首次需下载，之后完全离线、不依赖系统语音引擎。"
+                textSize = 12f
+                setTextColor(TEXT_SUB)
+                setLineSpacing(dip(3).toFloat(), 1.15f)
                 setPadding(dip(4), dip(4), 0, 0)
             })
         }
@@ -838,6 +857,7 @@ class ThemePanel(
             "滚动速度" -> "${Theme.scrollSpeed(activity)} 级"
             "滚动方式" -> if (Theme.scrollAdaptive(activity)) "按字数" else "匀速"
             "方向键滚动" -> "${Theme.scrollKeyLines(activity)} 行"
+            "朗读模型" -> if (com.potaperper.wereadtv.tts.TtsModel.isReady(activity)) "已就绪（小雅 int8）" else "未下载"
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
             "自动检查更新" -> if (Theme.autoCheckUpdate(activity)) "开启" else "关闭"
@@ -878,6 +898,12 @@ class ThemePanel(
                 stylePrefRow(scrollSpeedLabel, "滚动速度", scrollSpeedLabel.hasFocus())
                 stylePrefRow(scrollModeLabel, "滚动方式", scrollModeLabel.hasFocus())
                 stylePrefRow(scrollKeyLabel, "方向键滚动", scrollKeyLabel.hasFocus())
+                if (::ttsModelLabel.isInitialized) {
+                    stylePrefRow(ttsModelLabel, "朗读模型", ttsModelLabel.hasFocus())
+                    ttsDownloadBtn.text =
+                        if (com.potaperper.wereadtv.tts.TtsModel.isReady(activity)) "重新下载语音模型"
+                        else "下载语音模型（约 14MB）"
+                }
             }
         }
         if (::darkModeLabel.isInitialized) {
@@ -1033,6 +1059,7 @@ class ThemePanel(
                 cornerTL, cornerTR, cornerBL, cornerBR,
                 updateLineLabel, speedTestBtn,
                 autoScrollLabel, scrollSpeedLabel, scrollModeLabel, scrollKeyLabel,
+                ttsModelLabel, ttsDownloadBtn,
             )
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
             else -> contentAbout.findAllFocusableViews()

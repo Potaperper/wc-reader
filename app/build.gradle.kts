@@ -11,8 +11,11 @@ android {
         applicationId = "com.potaperper.wereadtv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 16
-        versionName = "1.0.15"
+        versionCode = 17
+        versionName = "1.0.16"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -39,4 +42,5 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation(files("libs/sherpa-onnx-arm64.aar"))
 }

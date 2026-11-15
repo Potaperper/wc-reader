@@ -1406,72 +1406,22 @@ function fixSrc(el, base){
         if (Theme.autoScroll(activity)) stopAutoScroll()
     }
 
-    // ---------- 系统 TTS 朗读 ----------
+    // ---------- 离线 TTS 朗读（sherpa-onnx） ----------
 
-    private var tts: android.speech.tts.TextToSpeech? = null
-    private var ttsReady = false
+    private val ttsPlayer by lazy { com.potaperper.wereadtv.tts.OfflineTtsPlayer(activity) }
     private var ttsReading = false
-    private var ttsWantStart = false
     private var ttsPendingNext = false
-    private var ttsLastId = ""
 
     private fun toggleTts() {
         if (ttsReading) {
             stopTts()
             return
         }
-        if (tts == null) {
-            ttsWantStart = true
-            initTts()
-            return
-        }
-        if (!ttsReady) {
-            ttsWantStart = true
-            activity.showToast("语音引擎尚未就绪")
+        if (!com.potaperper.wereadtv.tts.TtsModel.isReady(activity)) {
+            activity.showTtsModelPrompt()
             return
         }
         startTtsInternal()
-    }
-
-    private fun initTts() {
-        activity.showToast("正在初始化语音…")
-        tts = android.speech.tts.TextToSpeech(activity) { status ->
-            mainHandler.post {
-                if (status != android.speech.tts.TextToSpeech.SUCCESS) {
-                    activity.showToast("TTS 初始化失败，请检查电视语音引擎")
-                    ttsWantStart = false
-                    return@post
-                }
-                val r = tts?.setLanguage(java.util.Locale.CHINA)
-                ttsReady = r != android.speech.tts.TextToSpeech.LANG_MISSING_DATA &&
-                    r != android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED
-                tts?.setSpeechRate(1.0f)
-                tts?.setOnUtteranceProgressListener(
-                    object : android.speech.tts.UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) {}
-                        override fun onDone(utteranceId: String?) {
-                            mainHandler.post { onTtsDone(utteranceId ?: "") }
-                        }
-
-                        @Deprecated("Deprecated in Java")
-                        override fun onError(utteranceId: String?) {
-                            mainHandler.post { if (ttsReading) stopTts() }
-                        }
-
-                        override fun onError(utteranceId: String?, errorCode: Int) {
-                            mainHandler.post { if (ttsReading) stopTts() }
-                        }
-                    },
-                )
-                if (!ttsReady) {
-                    activity.showToast("电视缺少中文语音包，请在系统设置中安装 TTS 引擎")
-                    ttsWantStart = false
-                } else if (ttsWantStart) {
-                    ttsWantStart = false
-                    startTtsInternal()
-                }
-            }
-        }
     }
 
     private fun startTtsInternal() {
@@ -1487,37 +1437,32 @@ function fixSrc(el, base){
                     activity.showToast("本章没有可朗读的文字")
                     return@evaluateJavascript
                 }
-                val chunks = chunkForTts(text)
-                if (chunks.isEmpty()) {
-                    activity.showToast("本章没有可朗读的文字")
-                    return@evaluateJavascript
-                }
                 ttsReading = true
                 ttsPendingNext = false
                 updateTtsButton()
-                val stamp = System.currentTimeMillis()
-                ttsLastId = "wc-$stamp-${chunks.size - 1}"
-                chunks.forEachIndexed { i, chunk ->
-                    val id = if (i == chunks.size - 1) ttsLastId else "wc-$stamp-$i"
-                    tts?.speak(
-                        chunk,
-                        if (i == 0) android.speech.tts.TextToSpeech.QUEUE_FLUSH
-                        else android.speech.tts.TextToSpeech.QUEUE_ADD,
-                        null,
-                        id,
-                    )
-                }
-                activity.showToast("开始朗读本章")
+                activity.showToast("正在合成语音…")
+                ttsPlayer.speak(
+                    text,
+                    onDone = { mainHandler.post { onTtsChapterDone() } },
+                    onError = { msg ->
+                        mainHandler.post {
+                            ttsReading = false
+                            updateTtsButton()
+                            activity.showToast(msg)
+                        }
+                    },
+                )
             }
         }
     }
 
-    private fun onTtsDone(id: String) {
+    private fun onTtsChapterDone() {
         if (!ttsReading) return
-        if (id != ttsLastId) return
         val next = currentChapterIdx + 1
         if (next in chapters.indices) {
             ttsPendingNext = true
+            ttsReading = false
+            updateTtsButton()
             loadChapter(next, 0, 0f)
         } else {
             stopTts()
@@ -1528,37 +1473,13 @@ function fixSrc(el, base){
     private fun stopTts() {
         ttsReading = false
         ttsPendingNext = false
-        tts?.stop()
+        ttsPlayer.stop()
         updateTtsButton()
         activity.showToast("已停止朗读")
     }
 
     private fun updateTtsButton() {
         ttsButton?.text = if (ttsReading) "停止朗读" else "朗读"
-    }
-
-    /** 按句子切成适合 TTS 的短段 */
-    private fun chunkForTts(text: String): List<String> {
-        val out = ArrayList<String>()
-        var start = 0
-        val maxLen = 1800
-        while (start < text.length) {
-            var end = minOf(start + maxLen, text.length)
-            if (end < text.length) {
-                val candidates = intArrayOf(
-                    text.lastIndexOf('。', end - 1),
-                    text.lastIndexOf('！', end - 1),
-                    text.lastIndexOf('？', end - 1),
-                    text.lastIndexOf('\n', end - 1),
-                )
-                val idx = candidates.max()
-                if (idx > start + 200) end = idx + 1
-            }
-            val s = text.substring(start, end).trim()
-            if (s.isNotEmpty()) out.add(s)
-            start = end
-        }
-        return out
     }
 
     // ---------- 四角信息 ----------
@@ -1754,7 +1675,7 @@ function fixSrc(el, base){
     private fun exitReader() {
         if (ttsReading) {
             ttsReading = false
-            tts?.stop()
+            ttsPlayer.stop()
             updateTtsButton()
         }
         saveProgress()
@@ -1884,7 +1805,7 @@ function fixSrc(el, base){
         fun onRendered(totalPages: Int) {
             mainHandler.post {
                 loadingText.visibility = GONE
-                if (ttsPendingNext && ttsReading) {
+                if (ttsPendingNext) {
                     ttsPendingNext = false
                     mainHandler.postDelayed({ startTtsInternal() }, 300)
                     refreshHud()
@@ -1978,11 +1899,9 @@ function fixSrc(el, base){
         mainHandler.removeCallbacks(clockRunnable)
         mainHandler.removeCallbacks(autoSaveRunnable)
         try {
-            tts?.stop()
-            tts?.shutdown()
+            ttsPlayer.release()
         } catch (_: Exception) {
         }
-        tts = null
         webView.apply {
             stopLoading()
             (parent as? ViewGroup)?.removeView(this)
