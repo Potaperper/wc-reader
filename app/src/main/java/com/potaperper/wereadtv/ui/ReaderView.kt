@@ -1,8 +1,18 @@
 ﻿package com.potaperper.wereadtv.ui
 
 import android.annotation.SuppressLint
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.os.Bundle
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.os.Message
+import android.os.Messenger
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.ViewGroup
@@ -586,10 +596,10 @@ function fixSrc(el, base){
         }
     }
 
-    /** 自动滚动时定期保存本地进度（防止进程被系统回收） */
+    /** 定期保存本地进度（防止进程被系统回收/语音进程崩溃时丢位置） */
     private val autoSaveRunnable = object : Runnable {
         override fun run() {
-            if (Theme.autoScroll(activity) && currentChapter() != null) {
+            if (currentChapter() != null) {
                 saveLocalPosition(force = true)
             }
             mainHandler.postDelayed(this, 20_000)
@@ -1436,9 +1446,119 @@ function fixSrc(el, base){
 
     // ---------- 离线 TTS 朗读（sherpa-onnx） ----------
 
-    private val ttsPlayer by lazy { com.potaperper.wereadtv.tts.OfflineTtsPlayer(activity) }
+    private var ttsService: Messenger? = null
+    private var ttsBounded = false
+    private var ttsPendingText: String? = null
     private var ttsReading = false
     private var ttsPendingNext = false
+
+    private val ttsClient = Messenger(Handler(Looper.getMainLooper()) { msg ->
+        when (msg.what) {
+            com.potaperper.wereadtv.tts.TtsService.MSG_STATUS -> {
+                val s = msg.data?.getString(com.potaperper.wereadtv.tts.TtsService.KEY_STATUS) ?: ""
+                mainHandler.post {
+                    if (!ttsReading) return@post
+                    showTtsStatus(s)
+                    if (s == "开始播放") {
+                        ttsAudioStarted = true
+                        mainHandler.removeCallbacks(ttsWatchdog)
+                        mainHandler.postDelayed({ hideTtsStatus() }, 1500)
+                    }
+                }
+            }
+            com.potaperper.wereadtv.tts.TtsService.MSG_DONE -> mainHandler.post { onTtsChapterDone() }
+            com.potaperper.wereadtv.tts.TtsService.MSG_ERROR -> {
+                val e = msg.data?.getString(com.potaperper.wereadtv.tts.TtsService.KEY_ERROR) ?: "语音合成失败"
+                mainHandler.post {
+                    ttsReading = false
+                    ttsAudioStarted = false
+                    mainHandler.removeCallbacks(ttsWatchdog)
+                    hideTtsStatus()
+                    updateTtsButton()
+                    activity.showToast(e)
+                }
+            }
+        }
+        true
+    })
+
+    private val ttsConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            ttsService = service?.let { Messenger(it) }
+            ttsBounded = true
+            ttsPendingText?.let { text ->
+                ttsPendingText = null
+                sendSpeak(text)
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            ttsService = null
+            ttsBounded = false
+            onTtsServiceDied()
+        }
+
+        override fun onBindingDied(name: ComponentName?) {
+            ttsService = null
+            ttsBounded = false
+            onTtsServiceDied()
+        }
+    }
+
+    private fun ensureTtsService() {
+        if (ttsService != null || ttsBounded) return
+        ttsBounded = true
+        try {
+            activity.bindService(
+                Intent(activity, com.potaperper.wereadtv.tts.TtsService::class.java),
+                ttsConnection,
+                Context.BIND_AUTO_CREATE,
+            )
+        } catch (e: Exception) {
+            ttsBounded = false
+        }
+    }
+
+    private fun sendSpeak(text: String) {
+        val m = ttsService
+        if (m == null) {
+            ttsPendingText = text
+            ensureTtsService()
+            return
+        }
+        val msg = Message.obtain(null, com.potaperper.wereadtv.tts.TtsService.MSG_SPEAK)
+        msg.data = Bundle().apply {
+            putString(com.potaperper.wereadtv.tts.TtsService.KEY_TEXT, text)
+        }
+        msg.replyTo = ttsClient
+        try {
+            m.send(msg)
+        } catch (e: Exception) {
+            ttsPendingText = text
+            ttsService = null
+            ttsBounded = false
+            ensureTtsService()
+        }
+    }
+
+    private fun sendStopToService() {
+        try {
+            ttsService?.send(Message.obtain(null, com.potaperper.wereadtv.tts.TtsService.MSG_STOP))
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun onTtsServiceDied() {
+        ttsPendingText = null
+        if (ttsReading) {
+            ttsReading = false
+            ttsAudioStarted = false
+            mainHandler.removeCallbacks(ttsWatchdog)
+            hideTtsStatus()
+            updateTtsButton()
+            activity.showToast("语音引擎进程异常退出，已停止朗读")
+        }
+    }
 
     private fun toggleTts() {
         if (ttsReading) {
@@ -1454,6 +1574,8 @@ function fixSrc(el, base){
 
     private fun startTtsInternal() {
         if (ttsReading) return
+        // 先保存一次进度：即使语音进程崩溃也不会丢阅读位置
+        saveProgress()
         stopAutoScroll()
         capturePosition { off, _ ->
             val o = if (off >= 0) off else lastOffset
@@ -1472,31 +1594,7 @@ function fixSrc(el, base){
                 showTtsStatus("正在加载语音模型…")
                 mainHandler.removeCallbacks(ttsWatchdog)
                 mainHandler.postDelayed(ttsWatchdog, 60_000)
-                ttsPlayer.speak(
-                    text,
-                    onStatus = { s ->
-                        mainHandler.post {
-                            if (!ttsReading) return@post
-                            showTtsStatus(s)
-                            if (s == "开始播放") {
-                                ttsAudioStarted = true
-                                mainHandler.removeCallbacks(ttsWatchdog)
-                                mainHandler.postDelayed({ hideTtsStatus() }, 1500)
-                            }
-                        }
-                    },
-                    onDone = { mainHandler.post { onTtsChapterDone() } },
-                    onError = { msg ->
-                        mainHandler.post {
-                            ttsReading = false
-                            ttsAudioStarted = false
-                            mainHandler.removeCallbacks(ttsWatchdog)
-                            hideTtsStatus()
-                            updateTtsButton()
-                            activity.showToast(msg)
-                        }
-                    },
-                )
+                sendSpeak(text)
             }
         }
     }
@@ -1522,7 +1620,7 @@ function fixSrc(el, base){
         ttsAudioStarted = false
         mainHandler.removeCallbacks(ttsWatchdog)
         hideTtsStatus()
-        ttsPlayer.stop()
+        sendStopToService()
         updateTtsButton()
         activity.showToast("已停止朗读")
     }
@@ -1737,7 +1835,7 @@ function fixSrc(el, base){
             ttsAudioStarted = false
             mainHandler.removeCallbacks(ttsWatchdog)
             hideTtsStatus()
-            ttsPlayer.stop()
+            sendStopToService()
             updateTtsButton()
         }
         saveProgress()
@@ -1960,10 +2058,21 @@ function fixSrc(el, base){
         released = true
         mainHandler.removeCallbacks(clockRunnable)
         mainHandler.removeCallbacks(autoSaveRunnable)
+        mainHandler.removeCallbacks(ttsWatchdog)
         try {
-            ttsPlayer.release()
+            ttsService?.send(
+                Message.obtain(null, com.potaperper.wereadtv.tts.TtsService.MSG_RELEASE),
+            )
         } catch (_: Exception) {
         }
+        if (ttsBounded) {
+            try {
+                activity.unbindService(ttsConnection)
+            } catch (_: Exception) {
+            }
+            ttsBounded = false
+        }
+        ttsService = null
         webView.apply {
             stopLoading()
             (parent as? ViewGroup)?.removeView(this)

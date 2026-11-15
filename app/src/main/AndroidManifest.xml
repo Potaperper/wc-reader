@@ -36,6 +36,11 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <service
+            android:name=".tts.TtsService"
+            android:exported="false"
+            android:process=":tts" />
     </application>
 
 </manifest>
