@@ -45,8 +45,11 @@ class OfflineTtsPlayer(private val ctx: Context) {
         thread = Thread {
             var at: AudioTrack? = null
             try {
+                TtsDiag.log(ctx, "speak start, chunks=${chunks.size}")
                 onStatus("正在加载语音模型…")
+                TtsDiag.log(ctx, "engine init start")
                 val engine = ensureEngine()
+                TtsDiag.log(ctx, "engine init done, sr=${engine.sampleRate()}")
                 onStatus("模型已加载，正在合成…")
                 val sampleRate = engine.sampleRate()
                 val minBuf = AudioTrack.getMinBufferSize(
@@ -71,46 +74,41 @@ class OfflineTtsPlayer(private val ctx: Context) {
                 at = audioTrack
                 track = audioTrack
                 audioTrack.play()
+                TtsDiag.log(ctx, "audio track started")
                 var started = false
                 for ((idx, chunk) in chunks.withIndex()) {
                     if (stopFlag) break
-                    // 边合成边播放：回调里拿到一批样本就写入 AudioTrack
-                    engine.generateWithCallback(chunk, 0, 1.0f) { samples ->
-                        if (stopFlag) {
-                            1
-                        } else {
-                            if (!started) {
-                                started = true
-                                onStatus("开始播放")
-                                android.util.Log.i("OfflineTts", "first chunk chars=${chunk.length}")
-                            }
-                            val pcm = ShortArray(samples.size) { i ->
-                                (samples[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-                            }
-                            var offset = 0
-                            while (offset < pcm.size && !stopFlag) {
-                                val n = audioTrack.write(
-                                    pcm, offset, pcm.size - offset,
-                                    AudioTrack.WRITE_BLOCKING,
-                                )
-                                if (n <= 0) break
-                                offset += n
-                            }
-                            if (stopFlag) 1 else 0
-                        }
+                    TtsDiag.log(ctx, "generate chunk $idx chars=${chunk.length}")
+                    val audio = engine.generate(chunk, 0, 1.0f)
+                    TtsDiag.log(ctx, "chunk $idx generated samples=${audio.samples.size}")
+                    if (audio.samples.isEmpty()) continue
+                    if (!started) {
+                        started = true
+                        onStatus("开始播放")
                     }
-                    if (idx == 0) {
-                        android.util.Log.i("OfflineTts", "first sentence done")
+                    val pcm = ShortArray(audio.samples.size) { i ->
+                        (audio.samples[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                    }
+                    var offset = 0
+                    while (offset < pcm.size && !stopFlag) {
+                        val n = audioTrack.write(
+                            pcm, offset, pcm.size - offset,
+                            AudioTrack.WRITE_BLOCKING,
+                        )
+                        if (n <= 0) break
+                        offset += n
                     }
                 }
                 try { audioTrack.stop() } catch (_: Exception) {}
                 audioTrack.release()
                 track = null
+                TtsDiag.log(ctx, "speak done")
                 if (!stopFlag) {
                     speaking = false
                     onDone()
                 }
             } catch (e: Throwable) {
+                TtsDiag.log(ctx, "speak error: ${e.javaClass.simpleName}: ${e.message}")
                 android.util.Log.e("OfflineTts", "speak failed: ${e.message}", e)
                 try { at?.stop() } catch (_: Exception) {}
                 try { at?.release() } catch (_: Exception) {}
@@ -158,7 +156,7 @@ class OfflineTtsPlayer(private val ctx: Context) {
         )
         val model = OfflineTtsModelConfig(
             vits = vits,
-            numThreads = 4,
+            numThreads = 2,
             debug = false,
             provider = "cpu",
         )

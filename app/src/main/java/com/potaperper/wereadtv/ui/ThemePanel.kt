@@ -89,6 +89,7 @@ class ThemePanel(
     private lateinit var scrollKeyLabel: TextView
     private lateinit var ttsModelLabel: TextView
     private lateinit var ttsDownloadBtn: TextView
+    private lateinit var ttsDiagBtn: TextView
     private lateinit var silentUpdateLabel: TextView
 
     // ---- 背景控件 ----
@@ -769,6 +770,7 @@ class ThemePanel(
                 activity.showToast(msg)
             }
         }
+        ttsDiagBtn = actionButton("查看语音诊断") { activity.showTtsDiag() }
         refreshLayoutLabels()
 
         val col = LinearLayout(activity).apply {
@@ -822,6 +824,7 @@ class ThemePanel(
             addView(sectionTitle("离线朗读（sherpa-onnx）"))
             addView(ttsModelLabel)
             addView(ttsDownloadBtn)
+            addView(ttsDiagBtn)
             addView(TextView(activity).apply {
                 text = "使用 AISHELL-3 int8 中文模型（约 28MB，174 音色），首次需下载，之后完全离线、不依赖系统语音引擎。"
                 textSize = 12f
@@ -1071,7 +1074,7 @@ class ThemePanel(
                 cornerTL, cornerTR, cornerBL, cornerBR,
                 updateLineLabel, speedTestBtn,
                 autoScrollLabel, scrollSpeedLabel, scrollModeLabel, scrollKeyLabel,
-                ttsModelLabel, ttsDownloadBtn,
+                ttsModelLabel, ttsDownloadBtn, ttsDiagBtn,
             )
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
             else -> contentAbout.findAllFocusableViews()

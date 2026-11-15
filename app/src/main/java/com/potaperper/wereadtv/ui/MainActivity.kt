@@ -918,6 +918,12 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 显示语音诊断日志（最后几条阶段记录） */
+    fun showTtsDiag() {
+        val text = com.potaperper.wereadtv.tts.TtsDiag.tail(this, 14)
+        showInfoDialog("语音诊断", text)
+    }
+
     /** 通用信息弹窗（遥控器 OK 关闭） */
     fun showInfoDialog(title: String, message: String) {
         lateinit var dlg: android.app.Dialog

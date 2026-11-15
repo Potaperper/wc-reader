@@ -1556,7 +1556,8 @@ function fixSrc(el, base){
             mainHandler.removeCallbacks(ttsWatchdog)
             hideTtsStatus()
             updateTtsButton()
-            activity.showToast("语音引擎进程异常退出，已停止朗读")
+            val stage = com.potaperper.wereadtv.tts.TtsDiag.lastStage(activity)
+            activity.showToast("语音引擎退出：$stage")
         }
     }
 

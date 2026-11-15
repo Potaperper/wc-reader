@@ -62,7 +62,7 @@ VSCode 上的 [TouchFish](https://github.com/ylw1997/touchFish) 插件把微信�
 
 ```bash
 adb connect <电视IP>:5555   # 需先在电视上开启 ADB 调试
-adb install WCReader-1.0.19.apk
+adb install WCReader-1.0.20.apk
 ```
 
 ### 方式二：U 盘

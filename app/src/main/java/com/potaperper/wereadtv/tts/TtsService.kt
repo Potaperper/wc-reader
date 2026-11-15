@@ -37,6 +37,7 @@ class TtsService : Service() {
             MSG_SPEAK -> {
                 client = msg.replyTo
                 val text = msg.data?.getString(KEY_TEXT) ?: ""
+                TtsDiag.log(this, "speak requested, chars=${text.length}")
                 player.speak(
                     text,
                     onStatus = { s -> send(MSG_STATUS, Bundle().apply { putString(KEY_STATUS, s) }) },
@@ -54,6 +55,11 @@ class TtsService : Service() {
     }
 
     private val messenger = Messenger(handler)
+
+    override fun onCreate() {
+        super.onCreate()
+        TtsDiag.log(this, "service onCreate")
+    }
 
     override fun onBind(intent: Intent?): IBinder = messenger.binder
 
