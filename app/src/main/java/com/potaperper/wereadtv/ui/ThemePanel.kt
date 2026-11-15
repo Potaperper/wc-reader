@@ -85,6 +85,8 @@ class ThemePanel(
     private lateinit var autoScrollLabel: TextView
     private lateinit var scrollSpeedLabel: TextView
     private lateinit var scrollModeLabel: TextView
+    private lateinit var scrollKeyLabel: TextView
+    private lateinit var silentUpdateLabel: TextView
 
     // ---- 背景控件 ----
     private lateinit var darkModeLabel: TextView
@@ -745,6 +747,7 @@ class ThemePanel(
         autoScrollLabel = prefRow("自动滚动")
         scrollSpeedLabel = prefRow("滚动速度")
         scrollModeLabel = prefRow("滚动方式")
+        scrollKeyLabel = prefRow("方向键滚动")
         refreshLayoutLabels()
 
         val col = LinearLayout(activity).apply {
@@ -786,8 +789,9 @@ class ThemePanel(
             addView(autoScrollLabel)
             addView(scrollSpeedLabel)
             addView(scrollModeLabel)
+            addView(scrollKeyLabel)
             addView(TextView(activity).apply {
-                text = "开启后阅读页改为连续纵向滚动。方向键可暂停，顶栏「滚动」按钮继续；" +
+                text = "开启后阅读页改为连续纵向滚动。方向键可前后滚动（行数可调），顶栏「滚动」按钮继续/暂停；" +
                     "「按字数」会按可见字数自动调整速度。"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
@@ -833,9 +837,11 @@ class ThemePanel(
             "自动滚动" -> if (Theme.autoScroll(activity)) "开启" else "关闭"
             "滚动速度" -> "${Theme.scrollSpeed(activity)} 级"
             "滚动方式" -> if (Theme.scrollAdaptive(activity)) "按字数" else "匀速"
+            "方向键滚动" -> "${Theme.scrollKeyLines(activity)} 行"
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
             "自动检查更新" -> if (Theme.autoCheckUpdate(activity)) "开启" else "关闭"
+            "静默下载新版本" -> if (Theme.silentUpdate(activity)) "开启" else "关闭"
             else -> if (Theme.verticalPaging(activity)) "上下键" else "左右键"
         }
         v.text = "$name　　　$value"
@@ -871,6 +877,7 @@ class ThemePanel(
                 stylePrefRow(autoScrollLabel, "自动滚动", autoScrollLabel.hasFocus())
                 stylePrefRow(scrollSpeedLabel, "滚动速度", scrollSpeedLabel.hasFocus())
                 stylePrefRow(scrollModeLabel, "滚动方式", scrollModeLabel.hasFocus())
+                stylePrefRow(scrollKeyLabel, "方向键滚动", scrollKeyLabel.hasFocus())
             }
         }
         if (::darkModeLabel.isInitialized) {
@@ -878,6 +885,9 @@ class ThemePanel(
         }
         if (::autoUpdateLabel.isInitialized) {
             stylePrefRow(autoUpdateLabel, "自动检查更新", autoUpdateLabel.hasFocus())
+            if (::silentUpdateLabel.isInitialized) {
+                stylePrefRow(silentUpdateLabel, "静默下载新版本", silentUpdateLabel.hasFocus())
+            }
         }
     }
 
@@ -891,6 +901,7 @@ class ThemePanel(
     private fun buildAboutContent(): ViewGroup {
         val version = activity.currentVersion()
         autoUpdateLabel = prefRow("自动检查更新")
+        silentUpdateLabel = prefRow("静默下载新版本")
         val col = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             addView(sectionTitle("版本信息"))
@@ -908,11 +919,19 @@ class ThemePanel(
                 setPadding(dip(4), 0, dip(4), dip(16))
             })
             addView(autoUpdateLabel)
+            addView(silentUpdateLabel)
+            addView(TextView(activity).apply {
+                text = "静默下载：发现新版本后在后台下载，下载完成后再提示安装。"
+                textSize = 12f
+                setTextColor(TEXT_SUB)
+                setPadding(dip(4), 0, dip(4), dip(10))
+            })
             addView(actionButton("检查更新") {
                 activity.checkForUpdate { msg -> activity.showToast(msg) }
             })
         }
         stylePrefRow(autoUpdateLabel, "自动检查更新", false)
+        stylePrefRow(silentUpdateLabel, "静默下载新版本", false)
         return ScrollView(activity).apply { addView(col) }
     }
 
@@ -1013,7 +1032,7 @@ class ThemePanel(
                 fastJumpSecLabel, fastJumpChaptersLabel,
                 cornerTL, cornerTR, cornerBL, cornerBR,
                 updateLineLabel, speedTestBtn,
-                autoScrollLabel, scrollSpeedLabel, scrollModeLabel,
+                autoScrollLabel, scrollSpeedLabel, scrollModeLabel, scrollKeyLabel,
             )
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
             else -> contentAbout.findAllFocusableViews()
@@ -1082,6 +1101,11 @@ class ThemePanel(
                 } else if (tab == TAB_ABOUT) {
                     if (autoUpdateLabel.hasFocus()) {
                         Theme.setAutoCheckUpdate(activity, !Theme.autoCheckUpdate(activity))
+                        refreshLayoutLabels()
+                        return true
+                    }
+                    if (silentUpdateLabel.hasFocus()) {
+                        Theme.setSilentUpdate(activity, !Theme.silentUpdate(activity))
                         refreshLayoutLabels()
                         return true
                     }
@@ -1180,6 +1204,10 @@ class ThemePanel(
                 Theme.setScrollAdaptive(activity, !Theme.scrollAdaptive(activity))
                 refreshLayoutLabels()
                 activity.onAutoScrollSpeedChanged()
+            }
+            scrollKeyLabel -> {
+                Theme.setScrollKeyLines(activity, Theme.scrollKeyLines(activity) + dir)
+                refreshLayoutLabels()
             }
             darkModeLabel -> toggleDarkMode()
             autoUpdateLabel -> {

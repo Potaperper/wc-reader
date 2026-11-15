@@ -148,10 +148,16 @@ class WeReadApi(context: Context) {
                 .build()
             http.newCall(request).execute().use { resp ->
                 val text = resp.body?.string() ?: ""
-                // 鉴权失败时服务端可能直接回 JSON 错误
+                if (!resp.isSuccessful) throw Exception("章节接口 HTTP ${resp.code}")
+                // 正常情况下返回加密文本；以 { 开头说明服务端回了错误 JSON
                 if (text.trimStart().startsWith("{")) {
                     val j = try { JSONObject(text) } catch (e: Exception) { null }
-                    if (j != null && isAuthFailure(j)) throw AuthExpiredException(j.optString("errMsg"))
+                    if (j != null) {
+                        if (isAuthFailure(j)) throw AuthExpiredException(j.optString("errMsg"))
+                        val msg = j.optString("errMsg", "") + j.optString("errLog", "")
+                        val code = j.optInt("errCode", 0)
+                        throw Exception("章节接口错误: ${msg.ifEmpty { "未知错误" }} ($code)")
+                    }
                 }
                 text
             }
@@ -368,31 +374,49 @@ class WeReadApi(context: Context) {
 
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
-    private suspend fun fetchChapter(bookId: String, chapterUid: Long): Triple<String, String, String> =
-        withRetry {
-            val info = bookInfo(bookId)
-            val format = info.optString("format", "epub")
-            if (format == "epub" || format == "pdf") {
-                val e0 = postJsonSignedForText("/web/book/chapter/e_0", chapterSignedPayload(bookId, chapterUid, 0))
-                val e1 = postJsonSignedForText("/web/book/chapter/e_1", chapterSignedPayload(bookId, chapterUid, 0))
-                val e2 = postJsonSignedForText("/web/book/chapter/e_2", chapterSignedPayload(bookId, chapterUid, 1))
-                val e3 = postJsonSignedForText("/web/book/chapter/e_3", chapterSignedPayload(bookId, chapterUid, 0))
-                val style = WereadDecrypt.dS(WereadDecrypt.chk(e2))
-                val html = WereadDecrypt.dH(
-                    WereadDecrypt.chk(e0) + WereadDecrypt.chk(e1) + WereadDecrypt.chk(e3),
-                )
-                if (html.isEmpty()) throw Exception("章节解密失败($bookId)")
-                Triple(html, style, format)
-            } else if (format == "txt") {
-                val t0 = postJsonSignedForText("/web/book/chapter/t_0", chapterSignedPayload(bookId, chapterUid, 0))
-                val t1 = postJsonSignedForText("/web/book/chapter/t_1", chapterSignedPayload(bookId, chapterUid, 1))
-                val html = WereadDecrypt.dT(WereadDecrypt.chk(t0) + WereadDecrypt.chk(t1))
-                if (html.isEmpty()) throw Exception("章节解密失败($bookId)")
-                Triple(html, "", format)
-            } else {
-                throw Exception("暂不支持 $format 格式($bookId)")
+    private suspend fun fetchChapter(bookId: String, chapterUid: Long): Triple<String, String, String> {
+        var last: Exception? = null
+        repeat(3) { attempt ->
+            try {
+                return fetchChapterOnce(bookId, chapterUid)
+            } catch (e: AuthExpiredException) {
+                if (renewCookie()) return fetchChapterOnce(bookId, chapterUid)
+                throw e
+            } catch (e: Exception) {
+                last = e
+                kotlinx.coroutines.delay(400L * (attempt + 1))
             }
         }
+        throw last ?: Exception("章节加载失败($bookId)")
+    }
+
+    private suspend fun fetchChapterOnce(bookId: String, chapterUid: Long): Triple<String, String, String> {
+        val info = bookInfo(bookId)
+        val format = info.optString("format", "epub")
+        return if (format == "epub" || format == "pdf") {
+            val e0 = postJsonSignedForText("/web/book/chapter/e_0", chapterSignedPayload(bookId, chapterUid, 0))
+            val e1 = postJsonSignedForText("/web/book/chapter/e_1", chapterSignedPayload(bookId, chapterUid, 0))
+            val e2 = postJsonSignedForText("/web/book/chapter/e_2", chapterSignedPayload(bookId, chapterUid, 1))
+            val e3 = postJsonSignedForText("/web/book/chapter/e_3", chapterSignedPayload(bookId, chapterUid, 0))
+            val style = WereadDecrypt.dS(WereadDecrypt.chk(e2))
+            val html = WereadDecrypt.dH(
+                WereadDecrypt.chk(e0) + WereadDecrypt.chk(e1) + WereadDecrypt.chk(e3),
+            )
+            if (html.isEmpty()) {
+                Log.e(TAG, "decrypt empty book=$bookId chapter=$chapterUid e0=${e0.take(12)} e1=${e1.take(12)}")
+                throw Exception("章节解密失败($bookId)")
+            }
+            Triple(html, style, format)
+        } else if (format == "txt") {
+            val t0 = postJsonSignedForText("/web/book/chapter/t_0", chapterSignedPayload(bookId, chapterUid, 0))
+            val t1 = postJsonSignedForText("/web/book/chapter/t_1", chapterSignedPayload(bookId, chapterUid, 1))
+            val html = WereadDecrypt.dT(WereadDecrypt.chk(t0) + WereadDecrypt.chk(t1))
+            if (html.isEmpty()) throw Exception("章节解密失败($bookId)")
+            Triple(html, "", format)
+        } else {
+            throw Exception("暂不支持 $format 格式($bookId)")
+        }
+    }
 
     private fun chapterSignedPayload(bookId: String, chapterUid: Long, st: Int): JSONObject {
         val payload = mutableMapOf<String, Any?>(

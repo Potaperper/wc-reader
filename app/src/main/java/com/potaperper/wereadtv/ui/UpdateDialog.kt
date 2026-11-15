@@ -20,6 +20,7 @@ class UpdateDialog(
     private val activity: MainActivity,
     private val info: UpdateInfo,
     private val onDownload: () -> Unit,
+    private val onBackgroundDownload: () -> Unit,
     private val onCopyLink: () -> Unit,
     private val onIgnoreVersion: () -> Unit,
     private val onDisableAutoCheck: () -> Unit,
@@ -54,8 +55,8 @@ class UpdateDialog(
             textSize = 13f
             setTextColor(0xFF9A9AA2.toInt())
             setLineSpacing(dip(3).toFloat(), 1.15f)
-            setPadding(0, dip(14), 0, 0)
-            maxLines = 6
+            setPadding(0, dip(12), 0, 0)
+            maxLines = 5
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
 
@@ -78,12 +79,13 @@ class UpdateDialog(
             visibility = GONE
         }
         statusText = TextView(activity).apply {
-            text = "已下载 ${"%.1f".format(info.sizeBytes / 1024f / 1024f)} MB 安装包，可自动切换加速线路"
+            text = ""
             textSize = 12f
             setTextColor(0xFF9A9AA2.toInt())
             setPadding(0, dip(4), 0, 0)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
+            visibility = GONE
         }
 
         val downloadBtn = button("下载更新") {
@@ -91,19 +93,21 @@ class UpdateDialog(
                 downloading = true
                 progressBar.visibility = VISIBLE
                 progressText.visibility = VISIBLE
+                statusText.visibility = VISIBLE
                 progressText.text = "0%"
                 statusText.text = "正在连接…"
                 downBtn.text = "下载中…"
                 onDownload()
             }
         }
+        val bgBtn = button("后台下载") { onBackgroundDownload() }
         val copyBtn = button("复制下载链接") { onCopyLink() }
         val ignoreBtn = button("忽略此版本") { onIgnoreVersion() }
         val neverBtn = button("不再提示") { onDisableAutoCheck() }
 
         val card = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dip(36), dip(30), dip(36), dip(26))
+            setPadding(dip(32), dip(26), dip(32), dip(22))
             background = GradientDrawable().apply {
                 setColor(0xFF1B1B1F.toInt())
                 cornerRadius = dip(18).toFloat()
@@ -117,6 +121,7 @@ class UpdateDialog(
             addView(progressText)
             addView(space(dip(14)))
             addView(downloadBtn)
+            addView(bgBtn)
             addView(copyBtn)
             addView(ignoreBtn)
             addView(neverBtn)
@@ -143,12 +148,12 @@ class UpdateDialog(
             textSize = 17f
             setTextColor(0xFFEAEAEE.toInt())
             gravity = Gravity.CENTER
-            setPadding(dip(24), dip(15), dip(24), dip(15))
+            setPadding(dip(24), dip(12), dip(24), dip(12))
             isFocusable = true
             isFocusableInTouchMode = true
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { bottomMargin = dip(10) }
+            ).apply { bottomMargin = dip(8) }
             setOnClickListener { onClick() }
             setOnFocusChangeListener { v, hasFocus ->
                 v.background = GradientDrawable().apply {

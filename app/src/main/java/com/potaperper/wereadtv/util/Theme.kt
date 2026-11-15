@@ -100,6 +100,12 @@ object Theme {
         prefs(ctx).edit().putBoolean("scrollAdaptive", v).apply()
     }
 
+    /** 自动滚动时按方向键滚动的行数（默认 3 行） */
+    fun scrollKeyLines(ctx: Context): Int = prefs(ctx).getInt("scrollKeyLines", 3)
+    fun setScrollKeyLines(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("scrollKeyLines", v.coerceIn(1, 10)).apply()
+    }
+
     /** 翻页方式：true=瞬时跳页（跨越式），false=平滑滚动 */
     fun instantPage(ctx: Context): Boolean = prefs(ctx).getBoolean("instantPage", false)
     fun setInstantPage(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean("instantPage", v).apply() }
@@ -191,6 +197,12 @@ object Theme {
     fun autoCheckUpdate(ctx: Context): Boolean = prefs(ctx).getBoolean("autoCheckUpdate", true)
     fun setAutoCheckUpdate(ctx: Context, v: Boolean) {
         prefs(ctx).edit().putBoolean("autoCheckUpdate", v).apply()
+    }
+
+    /** 静默检查更新并后台下载（下载完成后才提示安装） */
+    fun silentUpdate(ctx: Context): Boolean = prefs(ctx).getBoolean("silentUpdate", false)
+    fun setSilentUpdate(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("silentUpdate", v).apply()
     }
 
     /** 已忽略的版本（不再提示该版本） */

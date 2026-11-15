@@ -448,6 +448,9 @@ class MainActivity : Activity() {
 
     private var updateDialog: android.app.Dialog? = null
 
+    /** 正在后台下载的版本（null 表示没有） */
+    private var bgDownloading: com.potaperper.wereadtv.update.UpdateInfo? = null
+
     /** 启动时自动检查更新（可在“关于”页关闭） */
     fun maybeAutoCheckUpdate() {
         if (!Theme.autoCheckUpdate(this)) return
@@ -459,7 +462,11 @@ class MainActivity : Activity() {
                 return@launch
             }
             if (info.version == Theme.ignoredUpdateVersion(this@MainActivity)) return@launch
-            showUpdateDialog(info)
+            if (Theme.silentUpdate(this@MainActivity)) {
+                startBackgroundDownload(info, silent = true)
+            } else {
+                showUpdateDialog(info)
+            }
         }
     }
 
@@ -471,6 +478,10 @@ class MainActivity : Activity() {
         val view = UpdateDialog(
             this, info,
             onDownload = { startUpdateDownload(info, dialogRef) },
+            onBackgroundDownload = {
+                dialogRef.dismiss()
+                startBackgroundDownload(info, silent = false)
+            },
             onCopyLink = {
                 val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 cm.setPrimaryClip(
@@ -531,6 +542,129 @@ class MainActivity : Activity() {
     /** 等待安装权限授予后自动继续安装的 APK */
     private var pendingInstallApk: java.io.File? = null
 
+    /** 后台下载新版本，完成后弹出安装提示 */
+    private fun startBackgroundDownload(
+        info: com.potaperper.wereadtv.update.UpdateInfo,
+        silent: Boolean,
+    ) {
+        if (bgDownloading != null) {
+            showToast("正在后台下载新版本，请稍候")
+            return
+        }
+        bgDownloading = info
+        showToast("正在后台下载 ${info.tag}…")
+        ioScope.launch {
+            val file = com.potaperper.wereadtv.update.UpdateManager.download(
+                this@MainActivity, info,
+                onProgress = { },
+                onStatus = { },
+            )
+            bgDownloading = null
+            mainHandler.post {
+                if (file != null) {
+                    showReadyDialog(info, file)
+                } else {
+                    showToast("后台下载失败，可在 设置 → 关于 中重试")
+                }
+            }
+        }
+    }
+
+    /** 后台下载完成后的提示：安装 / 稍后 / 忽略此版本 */
+    private fun showReadyDialog(
+        info: com.potaperper.wereadtv.update.UpdateInfo,
+        file: java.io.File,
+    ) {
+        if (settingsDialog != null) closeSettings()
+        updateDialog?.dismiss()
+        updateDialog = null
+        lateinit var dlg: android.app.Dialog
+        fun btn(text: String, primary: Boolean, onClick: () -> Unit): TextView =
+            TextView(this).apply {
+                this.text = text
+                textSize = 17f
+                gravity = android.view.Gravity.CENTER
+                isFocusable = true
+                isFocusableInTouchMode = true
+                setPadding(24, 14, 24, 14)
+                layoutParams = LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = 20 }
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = 24f
+                    setColor(if (primary) 0xFF2E4F78.toInt() else 0xFF232329.toInt())
+                    setStroke(2, if (primary) 0xFF4A90D9.toInt() else 0xFF2E2E36.toInt())
+                }
+                setOnClickListener { onClick() }
+                setOnFocusChangeListener { v, has ->
+                    (v as TextView).setTextColor(0xFFFFFFFF.toInt())
+                    v.background = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = 24f
+                        setColor(if (has) 0xFF4A90D9.toInt() else if (primary) 0xFF2E4F78.toInt() else 0xFF232329.toInt())
+                        setStroke(2, if (has) 0xFFFFFFFF.toInt() else if (primary) 0xFF4A90D9.toInt() else 0xFF2E2E36.toInt())
+                    }
+                }
+            }
+
+        val title = TextView(this).apply {
+            text = "新版本已下载"
+            textSize = 22f
+            setTextColor(0xFFEAEAEE.toInt())
+        }
+        val version = TextView(this).apply {
+            text = "${info.tag}（当前 v${currentVersion()}）"
+            textSize = 15f
+            setTextColor(0xFF4A90D9.toInt())
+            setPadding(0, 8, 0, 0)
+        }
+        val notes = TextView(this).apply {
+            text = info.notes.trim().ifEmpty { "包含若干修复与改进。" }.take(300)
+            textSize = 13f
+            setTextColor(0xFF9A9AA2.toInt())
+            maxLines = 4
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, 14, 0, 22)
+        }
+        val installBtn = btn("立即安装", true) {
+            dlg.dismiss()
+            installApk(file)
+        }
+        val laterBtn = btn("稍后", false) { dlg.dismiss() }
+        val ignoreBtn = btn("忽略此版本", false) {
+            Theme.setIgnoredUpdateVersion(this, info.version)
+            dlg.dismiss()
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 40, 48, 30)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFF1B1B1F.toInt())
+                cornerRadius = 36f
+                setStroke(2, 0x22FFFFFF)
+            }
+            addView(title)
+            addView(version)
+            addView(notes)
+            addView(installBtn)
+            addView(laterBtn)
+            addView(ignoreBtn)
+        }
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(0xC8000000.toInt())
+            addView(card, FrameLayout.LayoutParams(
+                (resources.displayMetrics.widthPixels * 0.44f).toInt(),
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.CENTER,
+            ))
+        }
+        dlg = android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen)
+        dlg.setContentView(root)
+        dlg.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dlg.show()
+        installBtn.requestFocus()
+    }
+
     /** 拉起系统安装器 */
     private fun installApk(file: java.io.File) {
         try {
@@ -571,6 +705,10 @@ class MainActivity : Activity() {
 
     /** 检查 GitHub Releases：有新版弹出下载对话框，无更新/失败也给出明确提示 */
     fun checkForUpdate(onResult: (String) -> Unit) {
+        if (bgDownloading != null) {
+            onResult("正在后台下载新版本，请稍候")
+            return
+        }
         scope.launch {
             onResult("正在检查更新…")
             val info = withContext(Dispatchers.IO) {

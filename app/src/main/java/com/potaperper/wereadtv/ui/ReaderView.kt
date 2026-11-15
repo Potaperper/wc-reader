@@ -350,6 +350,12 @@ window.stopAutoScroll = function(){
 window.scrollPage = function(dir){
   window.scrollBy(0, dir * window.innerHeight * 0.85);
 };
+window.scrollLines = function(dir, lines){
+  var p = pagerEl();
+  var lh = 36;
+  try { lh = parseFloat(getComputedStyle(p).lineHeight) || 36; } catch(e) {}
+  window.scrollBy(0, dir * lines * lh);
+};
 window.scrollPercent = function(){
   var max = Math.max(0, document.body.scrollHeight - window.innerHeight);
   return max > 0 ? Math.min(100, window.scrollY * 100 / max) : 0;
@@ -688,11 +694,10 @@ function fixSrc(el, base){
                 event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT
             if (down || up) {
                 if (action == KeyEvent.ACTION_DOWN) {
-                    stopAutoScroll()
-                    webView.evaluateJavascript(
-                        "window.scrollPage(${if (down) 1 else -1})", null,
-                    )
-                    mainHandler.postDelayed({ refreshHud() }, 420)
+                    val dir = if (down) 1 else -1
+                    val lines = Theme.scrollKeyLines(activity)
+                    webView.evaluateJavascript("window.scrollLines($dir, $lines)", null)
+                    mainHandler.postDelayed({ refreshHud() }, 300)
                 }
                 return true
             }
