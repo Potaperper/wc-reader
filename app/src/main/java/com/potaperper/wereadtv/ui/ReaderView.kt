@@ -178,10 +178,23 @@ window.capturePosition = function(){
       pager.style.transition = 'none';
       pager.style.transform = 'translateX(' + (-page * unit) + 'px)';
       var x = window.__marginPx + 6;
-      var y = window.__marginTopPx + 10;
-      var r = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
-      if (r && pager.contains(r.startContainer)) {
-        off = textOffsetOf(pager, r.startContainer, r.startOffset);
+      var ys = [
+        window.__marginTopPx + 6,
+        window.__marginTopPx + 16,
+        window.__marginTopPx + 30
+      ];
+      for (var yi = 0; yi < ys.length && off < 0; yi++) {
+        var r = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, ys[yi]) : null;
+        if (r && pager.contains(r.startContainer)) {
+          off = textOffsetOf(pager, r.startContainer, r.startOffset);
+        }
+      }
+      if (off < 0) {
+        // 兜底：按页数比例估算本章偏移，避免直接回到章首
+        var totalChars = (pager.textContent || '').length;
+        if (window.__totalPages > 1 && totalChars > 0) {
+          off = Math.round(totalChars * page / (window.__totalPages - 1));
+        }
       }
       pager.style.transition = prevTr;
     }
@@ -706,15 +719,34 @@ function fixSrc(el, base){
             return true
         }
 
-        // ---------- 连续滚动模式：方向键手动滚动，暂停自动滚动 ----------
+        // ---------- 连续滚动模式：短按滚动若干行，长按跳上/下一章 ----------
         if (Theme.autoScroll(activity)) {
             val down = event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
                 event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
             val up = event.keyCode == KeyEvent.KEYCODE_DPAD_UP ||
                 event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT
             if (down || up) {
+                val dir = if (down) 1 else -1
                 if (action == KeyEvent.ACTION_DOWN) {
-                    val dir = if (down) 1 else -1
+                    if (!dirKeyDown) {
+                        dirKeyDown = true
+                        dirDownAt = now
+                        dirHold = 1
+                        longPressFired = false
+                    } else {
+                        dirHold++
+                    }
+                    if ((dirHold >= 5 || now - dirDownAt >= 600) && !longPressFired) {
+                        longPressFired = true
+                        stopAutoScroll()
+                        jumpChapter(dir)
+                        resetTap()
+                    }
+                    return true
+                }
+                dirKeyDown = false
+                if (longPressFired) return true
+                if (now - dirDownAt < 600) {
                     val lines = Theme.scrollKeyLines(activity)
                     webView.evaluateJavascript("window.scrollLines($dir, $lines)", null)
                     mainHandler.postDelayed({ refreshHud() }, 300)
@@ -1337,17 +1369,41 @@ function fixSrc(el, base){
         webView.evaluateJavascript("window.stopAutoScroll()", null)
     }
 
-    /** 滚动速度/方式变化后重新启动（从当前位置继续） */
+    /** 滚动速度/方式变化后重新启动（仅当当前确实在滚动时，避免暂停状态被强制启动） */
     fun applyAutoScrollSpeed() {
         if (!Theme.autoScroll(activity)) return
-        startAutoScroll()
+        webView.evaluateJavascript("window.__autoRaf ? 1 : 0") { running ->
+            if (running?.contains("1") == true) startAutoScroll()
+        }
     }
 
-    /** 顶栏「滚动」按钮：直接进入/退出连续滚动模式 */
+    /** 顶栏「滚动」按钮：未开启则直接进入；已开启则在暂停/继续之间切换 */
     private fun toggleAutoScroll() {
-        val on = !Theme.autoScroll(activity)
-        Theme.setAutoScroll(activity, on)
-        applyReaderMode()
+        if (!Theme.autoScroll(activity)) {
+            Theme.setAutoScroll(activity, true)
+            applyReaderMode()
+            return
+        }
+        webView.evaluateJavascript("window.__autoRaf ? 1 : 0") { running ->
+            if (running?.contains("1") == true) {
+                stopAutoScroll()
+                activity.showToast("自动滚动已暂停")
+            } else {
+                capturePosition { off, pct ->
+                    val o = if (off >= 0) off else lastOffset
+                    val p = if (pct > 0f) pct else lastPercent
+                    webView.evaluateJavascript("window.restorePosition($o, $p)") {
+                        startAutoScroll()
+                        activity.showToast("继续自动滚动")
+                    }
+                }
+            }
+        }
+    }
+
+    /** 打开设置面板时暂停自动滚动，避免在调设置时正文一直跑 */
+    fun pauseAutoScrollForPanel() {
+        if (Theme.autoScroll(activity)) stopAutoScroll()
     }
 
     // ---------- 系统 TTS 朗读 ----------

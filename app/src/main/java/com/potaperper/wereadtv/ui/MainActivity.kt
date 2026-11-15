@@ -99,6 +99,7 @@ class MainActivity : Activity() {
 
     fun showThemePanel(initialTab: Int = 0) {
         if (settingsDialog != null) return
+        readerView?.pauseAutoScrollForPanel()
         val panel = ThemePanel(this, initialTab, onChanged = { color ->
             // 背景变化实时作用到书架与阅读器
             shelfView?.setBackgroundColor(color)
