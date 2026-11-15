@@ -29,6 +29,7 @@ class OfflineTtsPlayer(private val ctx: Context) {
 
     fun speak(
         text: String,
+        onStatus: (String) -> Unit,
         onDone: () -> Unit,
         onError: (String) -> Unit,
     ) {
@@ -44,20 +45,22 @@ class OfflineTtsPlayer(private val ctx: Context) {
         thread = Thread {
             var at: AudioTrack? = null
             try {
+                onStatus("正在加载语音模型…")
                 val engine = ensureEngine()
+                onStatus("模型已加载，正在合成…")
                 val sampleRate = engine.sampleRate()
                 val minBuf = AudioTrack.getMinBufferSize(
                     sampleRate,
                     AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_FLOAT,
+                    AudioFormat.ENCODING_PCM_16BIT,
                 )
-                val bufferSize = maxOf(minBuf, sampleRate / 2 * 4)
+                val bufferSize = maxOf(minBuf, sampleRate / 2 * 2)
                 val attr = AudioAttributes.Builder()
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .build()
                 val format = AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .setSampleRate(sampleRate)
                     .build()
@@ -67,15 +70,27 @@ class OfflineTtsPlayer(private val ctx: Context) {
                 )
                 track = at
                 at.play()
-                for (chunk in chunks) {
+                var started = false
+                for ((idx, chunk) in chunks.withIndex()) {
                     if (stopFlag) break
                     val audio = engine.generate(chunk, 0, 1.0f)
-                    var offset = 0
-                    while (offset < audio.samples.size && !stopFlag) {
-                        val n = at.write(
-                            audio.samples, offset, audio.samples.size - offset,
-                            AudioTrack.WRITE_BLOCKING,
+                    if (audio.samples.isEmpty()) continue
+                    if (!started) {
+                        started = true
+                        onStatus("开始播放")
+                    }
+                    if (idx == 0) {
+                        android.util.Log.i(
+                            "OfflineTts",
+                            "first chunk chars=${chunk.length} samples=${audio.samples.size}",
                         )
+                    }
+                    val pcm = ShortArray(audio.samples.size) { i ->
+                        (audio.samples[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                    }
+                    var offset = 0
+                    while (offset < pcm.size && !stopFlag) {
+                        val n = at.write(pcm, offset, pcm.size - offset, AudioTrack.WRITE_BLOCKING)
                         if (n <= 0) break
                         offset += n
                     }
@@ -88,6 +103,7 @@ class OfflineTtsPlayer(private val ctx: Context) {
                     onDone()
                 }
             } catch (e: Throwable) {
+                android.util.Log.e("OfflineTts", "speak failed: ${e.message}", e)
                 try { at?.stop() } catch (_: Exception) {}
                 try { at?.release() } catch (_: Exception) {}
                 track = null
@@ -147,12 +163,12 @@ class OfflineTtsPlayer(private val ctx: Context) {
         return OfflineTts(config = config).also { tts = it }
     }
 
-    /** 按句子切成短段，降低首句延迟 */
+    /** 按句子切成短段，第一段更短以降低首句延迟 */
     private fun chunk(text: String): List<String> {
         val out = ArrayList<String>()
         var start = 0
-        val maxLen = 220
         while (start < text.length) {
+            val maxLen = if (out.isEmpty()) 80 else 180
             var end = minOf(start + maxLen, text.length)
             if (end < text.length) {
                 val candidates = intArrayOf(
@@ -163,7 +179,7 @@ class OfflineTtsPlayer(private val ctx: Context) {
                     text.lastIndexOf('；', end - 1),
                 )
                 val idx = candidates.max()
-                if (idx > start + 30) end = idx + 1
+                if (idx > start + 20) end = idx + 1
             }
             val s = text.substring(start, end).trim()
             if (s.isNotEmpty()) out.add(s)

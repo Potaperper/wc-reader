@@ -24,6 +24,7 @@ class ThemePanel(
     private val initialTab: Int = 0,
     private val onChanged: (Int) -> Unit,
     private val onDismiss: () -> Unit,
+    private val focusTtsDownload: Boolean = false,
 ) : FrameLayout(activity) {
 
     companion object {
@@ -182,7 +183,18 @@ class ThemePanel(
 
         showTab(initialTab)
         post {
-            if (initialTab == TAB_ACCOUNT) navAccount.requestFocus() else navBg.requestFocus()
+            if (focusTtsDownload && ::ttsDownloadBtn.isInitialized) {
+                showTab(TAB_EXTRA)
+                ttsDownloadBtn.requestFocus()
+                (contentExtra as? ScrollView)?.post {
+                    val y = (ttsDownloadBtn.top - dip(160)).coerceAtLeast(0)
+                    (contentExtra as ScrollView).smoothScrollTo(0, y)
+                }
+            } else if (initialTab == TAB_ACCOUNT) {
+                navAccount.requestFocus()
+            } else {
+                navBg.requestFocus()
+            }
         }
     }
 

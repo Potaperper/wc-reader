@@ -97,7 +97,7 @@ class MainActivity : Activity() {
         readerView?.applyZoom()
     }
 
-    fun showThemePanel(initialTab: Int = 0) {
+    fun showThemePanel(initialTab: Int = 0, focusTtsDownload: Boolean = false) {
         if (settingsDialog != null) return
         readerView?.pauseAutoScrollForPanel()
         val panel = ThemePanel(this, initialTab, onChanged = { color ->
@@ -105,7 +105,7 @@ class MainActivity : Activity() {
             shelfView?.setBackgroundColor(color)
             shelfView?.refreshTheme()
             readerView?.applyTheme()
-        }, onDismiss = { closeSettings() })
+        }, onDismiss = { closeSettings() }, focusTtsDownload = focusTtsDownload)
 
         // Dialog 承载：独立窗口，焦点不会逃逸到背后的书架/阅读器
         val dialog = android.app.Dialog(
@@ -803,7 +803,7 @@ class MainActivity : Activity() {
         }
         val go = btn("去下载", true) {
             dlg.dismiss()
-            showThemePanel(2)
+            showThemePanel(2, focusTtsDownload = true)
         }
         val cancel = btn("取消", false) { dlg.dismiss() }
         val card = LinearLayout(this).apply {

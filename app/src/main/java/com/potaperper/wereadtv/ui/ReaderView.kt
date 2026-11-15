@@ -605,6 +605,16 @@ function fixSrc(el, base){
     /** 顶栏三个按钮，用于循环移焦点 */
     private var topBarFocusables: List<TextView> = emptyList()
     private var ttsButton: TextView? = null
+    private lateinit var ttsStatus: TextView
+    private var ttsAudioStarted = false
+    private val ttsWatchdog = object : Runnable {
+        override fun run() {
+            if (ttsReading && !ttsAudioStarted) {
+                stopTts()
+                activity.showToast("语音合成超时，请检查模型或设备性能")
+            }
+        }
+    }
 
     private fun moveTopBarFocus(dir: Int) {
         val list = topBarFocusables
@@ -988,6 +998,24 @@ function fixSrc(el, base){
             addView(hudBottomRight, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END))
         }
         addView(hudLayer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        // TTS 状态提示（居中的小胶囊）
+        ttsStatus = TextView(activity).apply {
+            textSize = 14f
+            setTextColor(0xFFFFFFFF.toInt())
+            setPadding(dip(22), dip(10), dip(22), dip(10))
+            background = GradientDrawable().apply {
+                setColor(0xCC000000.toInt())
+                cornerRadius = dip(20).toFloat()
+            }
+            visibility = GONE
+            isFocusable = false
+            isClickable = false
+        }
+        addView(ttsStatus, LayoutParams(
+            LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER,
+        ))
+
         refreshHudVisibility()
         mainHandler.postDelayed(clockRunnable, 30_000)
         mainHandler.postDelayed(autoSaveRunnable, 20_000)
@@ -1439,14 +1467,31 @@ function fixSrc(el, base){
                 }
                 ttsReading = true
                 ttsPendingNext = false
+                ttsAudioStarted = false
                 updateTtsButton()
-                activity.showToast("正在合成语音…")
+                showTtsStatus("正在加载语音模型…")
+                mainHandler.removeCallbacks(ttsWatchdog)
+                mainHandler.postDelayed(ttsWatchdog, 60_000)
                 ttsPlayer.speak(
                     text,
+                    onStatus = { s ->
+                        mainHandler.post {
+                            if (!ttsReading) return@post
+                            showTtsStatus(s)
+                            if (s == "开始播放") {
+                                ttsAudioStarted = true
+                                mainHandler.removeCallbacks(ttsWatchdog)
+                                mainHandler.postDelayed({ hideTtsStatus() }, 1500)
+                            }
+                        }
+                    },
                     onDone = { mainHandler.post { onTtsChapterDone() } },
                     onError = { msg ->
                         mainHandler.post {
                             ttsReading = false
+                            ttsAudioStarted = false
+                            mainHandler.removeCallbacks(ttsWatchdog)
+                            hideTtsStatus()
                             updateTtsButton()
                             activity.showToast(msg)
                         }
@@ -1458,6 +1503,7 @@ function fixSrc(el, base){
 
     private fun onTtsChapterDone() {
         if (!ttsReading) return
+        hideTtsStatus()
         val next = currentChapterIdx + 1
         if (next in chapters.indices) {
             ttsPendingNext = true
@@ -1473,9 +1519,22 @@ function fixSrc(el, base){
     private fun stopTts() {
         ttsReading = false
         ttsPendingNext = false
+        ttsAudioStarted = false
+        mainHandler.removeCallbacks(ttsWatchdog)
+        hideTtsStatus()
         ttsPlayer.stop()
         updateTtsButton()
         activity.showToast("已停止朗读")
+    }
+
+    private fun showTtsStatus(text: String) {
+        if (!::ttsStatus.isInitialized) return
+        ttsStatus.text = text
+        ttsStatus.visibility = VISIBLE
+    }
+
+    private fun hideTtsStatus() {
+        if (::ttsStatus.isInitialized) ttsStatus.visibility = GONE
     }
 
     private fun updateTtsButton() {
@@ -1675,6 +1734,9 @@ function fixSrc(el, base){
     private fun exitReader() {
         if (ttsReading) {
             ttsReading = false
+            ttsAudioStarted = false
+            mainHandler.removeCallbacks(ttsWatchdog)
+            hideTtsStatus()
             ttsPlayer.stop()
             updateTtsButton()
         }
