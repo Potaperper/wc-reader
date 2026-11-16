@@ -39,7 +39,8 @@ VSCode 上的 [TouchFish](https://github.com/ylw1997/touchFish) 插件把微信�
 - 排版：字号（1px 步进）、字体颜色浓淡、字体样式（二级选择）、文字加粗、行距、左右边距、上/下边距独立调节、翻页方式（平滑/瞬时）、翻页方向（左右/上下）、长按行为
 - 阅读页四角信息：时间 / 章节号 / 章节名 / 当前页/本章节页 / 本章进度 / 全书进度 / 书名 / 无，四个角可分别设置，悬浮显示不占边距
 - 自动滚动：连续纵向滚动，顶栏「滚动」可随时切换；支持匀速与「按可见字数自适应」两种速度模式，速度 1-10 级；方向键每次滚动行数可调（默认 3 行）
-- 离线朗读：内置 sherpa-onnx 引擎，首次在设置中下载小雅 int8 中文模型（约 14MB）后完全离线；按当前进度朗读，读完自动下一章
+- 在线朗读：使用微软 Edge TTS（免费、无需 Key，中文晓晓/云希等音色），按当前进度朗读，读完自动下一章；需要联网，非官方接口可能失效
+- 音色可在 设置 → 功能 → 在线朗读 中切换
 - 目录快速跳跃：长按方向键达到设定时间后进入快速模式，每次跳过可配置的章节数
 - 自动检查更新：启动时检查 GitHub Releases，可直接下载安装（带进度条），支持**后台下载**与**静默下载**、多线路测速、忽略版本 / 关闭检查
 - 账号面板：查看登录状态、刷新书架、退出登录
@@ -62,7 +63,7 @@ VSCode 上的 [TouchFish](https://github.com/ylw1997/touchFish) 插件把微信�
 
 ```bash
 adb connect <电视IP>:5555   # 需先在电视上开启 ADB 调试
-adb install WCReader-1.0.20.apk
+adb install WCReader-1.0.21.apk
 ```
 
 ### 方式二：U 盘
@@ -90,6 +91,11 @@ gradle assembleDebug
 
 - [ylw1997/touchFish](https://github.com/ylw1997/touchFish) — 微信读书接口逆向、请求签名与章节解密算法均来自该项目（MIT License）
 - [truefedex/tv-bro](https://github.com/truefedex/tv-bro) — Android TV 遥控器交互参考
+
+## 第三方代码与接口
+
+- Edge TTS 的 `Sec-MS-GEC` token 生成逻辑移植自 [edge-tts](https://github.com/rany2/edge-tts)（LGPL-3.0）及其 [MorpheApp Java 适配](https://github.com/MorpheApp/morphe-patches)（GPL-3.0），详见 `EdgeTtsToken.java` 头部说明。
+- Edge TTS 是微软 Edge 浏览器朗读通道的非官方接口，无需 Key，但可能因微软策略调整而失效；仅供个人学习与自用。
 
 ## 字体许可
 

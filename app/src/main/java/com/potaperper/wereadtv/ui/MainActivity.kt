@@ -97,7 +97,7 @@ class MainActivity : Activity() {
         readerView?.applyZoom()
     }
 
-    fun showThemePanel(initialTab: Int = 0, focusTtsDownload: Boolean = false) {
+    fun showThemePanel(initialTab: Int = 0) {
         if (settingsDialog != null) return
         readerView?.pauseAutoScrollForPanel()
         val panel = ThemePanel(this, initialTab, onChanged = { color ->
@@ -105,7 +105,7 @@ class MainActivity : Activity() {
             shelfView?.setBackgroundColor(color)
             shelfView?.refreshTheme()
             readerView?.applyTheme()
-        }, onDismiss = { closeSettings() }, focusTtsDownload = focusTtsDownload)
+        }, onDismiss = { closeSettings() })
 
         // Dialog 承载：独立窗口，焦点不会逃逸到背后的书架/阅读器
         val dialog = android.app.Dialog(
@@ -163,6 +163,11 @@ class MainActivity : Activity() {
     /** 自动滚动速度/方式变化 */
     fun onAutoScrollSpeedChanged() {
         readerView?.applyAutoScrollSpeed()
+    }
+
+    /** 朗读音色变化：正在朗读时先停止，下次使用新音色 */
+    fun onTtsVoiceChanged() {
+        readerView?.onTtsVoiceChanged()
     }
 
     // ---------- 生命周期 ----------
@@ -756,172 +761,6 @@ class MainActivity : Activity() {
                 },
             )
         }
-    }
-
-    /** 朗读模型未下载时的提示 */
-    fun showTtsModelPrompt() {
-        lateinit var dlg: android.app.Dialog
-        fun btn(text: String, primary: Boolean, onClick: () -> Unit): TextView =
-            TextView(this).apply {
-                this.text = text
-                textSize = 17f
-                gravity = android.view.Gravity.CENTER
-                isFocusable = true
-                isFocusableInTouchMode = true
-                setPadding(24, 14, 24, 14)
-                layoutParams = LinearLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { bottomMargin = 20 }
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = 24f
-                    setColor(if (primary) 0xFF2E4F78.toInt() else 0xFF232329.toInt())
-                    setStroke(2, if (primary) 0xFF4A90D9.toInt() else 0xFF2E2E36.toInt())
-                }
-                setOnClickListener { onClick() }
-                setOnFocusChangeListener { v, has ->
-                    (v as TextView).setTextColor(0xFFFFFFFF.toInt())
-                    v.background = android.graphics.drawable.GradientDrawable().apply {
-                        cornerRadius = 24f
-                        setColor(if (has) 0xFF4A90D9.toInt() else if (primary) 0xFF2E4F78.toInt() else 0xFF232329.toInt())
-                        setStroke(2, if (has) 0xFFFFFFFF.toInt() else if (primary) 0xFF4A90D9.toInt() else 0xFF2E2E36.toInt())
-                    }
-                }
-            }
-
-        val title = TextView(this).apply {
-            text = "需要先下载语音模型"
-            textSize = 22f
-            setTextColor(0xFFEAEAEE.toInt())
-        }
-        val msg = TextView(this).apply {
-            text = "离线朗读使用 sherpa-onnx + AISHELL-3 int8 模型，首次需要下载约 28MB，之后完全离线。"
-            textSize = 15f
-            setTextColor(0xFF9A9AA2.toInt())
-            setLineSpacing(6f, 1.2f)
-            setPadding(0, 14, 0, 24)
-        }
-        val go = btn("去下载", true) {
-            dlg.dismiss()
-            showThemePanel(2, focusTtsDownload = true)
-        }
-        val cancel = btn("取消", false) { dlg.dismiss() }
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 40, 48, 30)
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFF1B1B1F.toInt())
-                cornerRadius = 36f
-                setStroke(2, 0x22FFFFFF)
-            }
-            addView(title)
-            addView(msg)
-            addView(go)
-            addView(cancel)
-        }
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(0xC8000000.toInt())
-            addView(card, FrameLayout.LayoutParams(
-                (resources.displayMetrics.widthPixels * 0.46f).toInt(),
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.CENTER,
-            ))
-        }
-        dlg = android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen)
-        dlg.setContentView(root)
-        dlg.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dlg.show()
-        go.requestFocus()
-    }
-
-    private var ttsDownloading = false
-
-    /** 下载离线 TTS 模型，下载过程用进度弹窗展示 */
-    fun downloadTtsModel(onDone: (String) -> Unit) {
-        if (ttsDownloading) {
-            onDone("语音模型正在下载中，请稍候")
-            return
-        }
-        ttsDownloading = true
-        val dialog = android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen)
-        val title = TextView(this).apply {
-            text = "下载语音模型"
-            textSize = 20f
-            setTextColor(0xFFEAEAEE.toInt())
-        }
-        val status = TextView(this).apply {
-            text = "准备下载…"
-            textSize = 13f
-            setTextColor(0xFF9A9AA2.toInt())
-            setPadding(0, 10, 0, 10)
-        }
-        val bar = android.widget.ProgressBar(
-            this, null, android.R.attr.progressBarStyleHorizontal,
-        ).apply {
-            max = 100
-            progress = 0
-            progressTintList = android.content.res.ColorStateList.valueOf(0xFF4A90D9.toInt())
-            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFF2E2E36.toInt())
-            layoutParams = LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 8,
-            )
-        }
-        val pct = TextView(this).apply {
-            text = "0%"
-            textSize = 13f
-            setTextColor(0xFF9A9AA2.toInt())
-            gravity = android.view.Gravity.END
-            setPadding(0, 6, 0, 18)
-        }
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 36, 48, 30)
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFF1B1B1F.toInt())
-                cornerRadius = 36f
-                setStroke(2, 0x22FFFFFF)
-            }
-            addView(title)
-            addView(status)
-            addView(bar)
-            addView(pct)
-        }
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(0xC8000000.toInt())
-            addView(card, FrameLayout.LayoutParams(
-                (resources.displayMetrics.widthPixels * 0.46f).toInt(),
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.CENTER,
-            ))
-        }
-        dialog.setContentView(root)
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.setCanceledOnTouchOutside(false)
-        dialog.show()
-
-        ioScope.launch {
-            val ok = com.potaperper.wereadtv.tts.TtsModel.download(
-                this@MainActivity,
-                onProgress = { p ->
-                    mainHandler.post {
-                        bar.progress = p
-                        pct.text = "$p%"
-                    }
-                },
-                onStatus = { s -> mainHandler.post { status.text = s } },
-            )
-            mainHandler.post {
-                ttsDownloading = false
-                dialog.dismiss()
-                onDone(if (ok) "语音模型已就绪，可以使用朗读" else "语音模型下载失败，请重试")
-            }
-        }
-    }
-
-    /** 显示语音诊断日志（最后几条阶段记录） */
-    fun showTtsDiag() {
-        val text = com.potaperper.wereadtv.tts.TtsDiag.tail(this, 14)
-        showInfoDialog("语音诊断", text)
     }
 
     /** 通用信息弹窗（遥控器 OK 关闭） */

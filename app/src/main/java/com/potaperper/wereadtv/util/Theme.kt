@@ -45,6 +45,23 @@ object Theme {
         prefs(ctx).edit().putString("readerFont", v).apply()
     }
 
+    // ---------- Edge TTS 音色 ----------
+
+    val EDGE_VOICES = listOf(
+        "zh-CN-XiaoxiaoNeural" to "晓晓（女）",
+        "zh-CN-YunxiNeural" to "云希（男）",
+        "zh-CN-YunyangNeural" to "云扬（男）",
+        "zh-CN-XiaoyiNeural" to "晓伊（女）",
+        "zh-CN-YunjianNeural" to "云健（男）",
+    )
+
+    fun edgeVoice(ctx: Context): String =
+        prefs(ctx).getString("edgeVoice", "zh-CN-XiaoxiaoNeural") ?: "zh-CN-XiaoxiaoNeural"
+
+    fun setEdgeVoice(ctx: Context, v: String) {
+        prefs(ctx).edit().putString("edgeVoice", v).apply()
+    }
+
     /** 正文加粗 */
     fun readerBold(ctx: Context): Boolean = prefs(ctx).getBoolean("readerBold", false)
     fun setReaderBold(ctx: Context, v: Boolean) {

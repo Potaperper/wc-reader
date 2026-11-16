@@ -24,7 +24,6 @@ class ThemePanel(
     private val initialTab: Int = 0,
     private val onChanged: (Int) -> Unit,
     private val onDismiss: () -> Unit,
-    private val focusTtsDownload: Boolean = false,
 ) : FrameLayout(activity) {
 
     companion object {
@@ -87,9 +86,7 @@ class ThemePanel(
     private lateinit var scrollSpeedLabel: TextView
     private lateinit var scrollModeLabel: TextView
     private lateinit var scrollKeyLabel: TextView
-    private lateinit var ttsModelLabel: TextView
-    private lateinit var ttsDownloadBtn: TextView
-    private lateinit var ttsDiagBtn: TextView
+    private lateinit var ttsVoiceLabel: TextView
     private lateinit var silentUpdateLabel: TextView
 
     // ---- 背景控件 ----
@@ -184,18 +181,7 @@ class ThemePanel(
 
         showTab(initialTab)
         post {
-            if (focusTtsDownload && ::ttsDownloadBtn.isInitialized) {
-                showTab(TAB_EXTRA)
-                ttsDownloadBtn.requestFocus()
-                (contentExtra as? ScrollView)?.post {
-                    val y = (ttsDownloadBtn.top - dip(160)).coerceAtLeast(0)
-                    (contentExtra as ScrollView).smoothScrollTo(0, y)
-                }
-            } else if (initialTab == TAB_ACCOUNT) {
-                navAccount.requestFocus()
-            } else {
-                navBg.requestFocus()
-            }
+            if (initialTab == TAB_ACCOUNT) navAccount.requestFocus() else navBg.requestFocus()
         }
     }
 
@@ -763,14 +749,7 @@ class ThemePanel(
         scrollSpeedLabel = prefRow("滚动速度")
         scrollModeLabel = prefRow("滚动方式")
         scrollKeyLabel = prefRow("方向键滚动")
-        ttsModelLabel = prefRow("朗读模型")
-        ttsDownloadBtn = actionButton("下载语音模型（约 28MB）") {
-            activity.downloadTtsModel { msg ->
-                refreshLayoutLabels()
-                activity.showToast(msg)
-            }
-        }
-        ttsDiagBtn = actionButton("查看语音诊断") { activity.showTtsDiag() }
+        ttsVoiceLabel = prefRow("朗读音色")
         refreshLayoutLabels()
 
         val col = LinearLayout(activity).apply {
@@ -821,12 +800,10 @@ class ThemePanel(
                 setLineSpacing(dip(3).toFloat(), 1.15f)
                 setPadding(dip(4), dip(4), dip(4), dip(18))
             })
-            addView(sectionTitle("离线朗读（sherpa-onnx）"))
-            addView(ttsModelLabel)
-            addView(ttsDownloadBtn)
-            addView(ttsDiagBtn)
+            addView(sectionTitle("在线朗读（Edge TTS）"))
+            addView(ttsVoiceLabel)
             addView(TextView(activity).apply {
-                text = "使用 AISHELL-3 int8 中文模型（约 28MB，174 音色），首次需下载，之后完全离线、不依赖系统语音引擎。"
+                text = "使用微软 Edge TTS（免费、无需 Key），需要联网；非官方接口，可能因服务调整失效。"
                 textSize = 12f
                 setTextColor(TEXT_SUB)
                 setLineSpacing(dip(3).toFloat(), 1.15f)
@@ -872,7 +849,7 @@ class ThemePanel(
             "滚动速度" -> "${Theme.scrollSpeed(activity)} 级"
             "滚动方式" -> if (Theme.scrollAdaptive(activity)) "按字数" else "匀速"
             "方向键滚动" -> "${Theme.scrollKeyLines(activity)} 行"
-            "朗读模型" -> if (com.potaperper.wereadtv.tts.TtsModel.isReady(activity)) "已就绪（AISHELL-3）" else "未下载"
+            "朗读音色" -> Theme.EDGE_VOICES.firstOrNull { it.first == Theme.edgeVoice(activity) }?.second ?: "晓晓（女）"
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
             "自动检查更新" -> if (Theme.autoCheckUpdate(activity)) "开启" else "关闭"
@@ -913,11 +890,8 @@ class ThemePanel(
                 stylePrefRow(scrollSpeedLabel, "滚动速度", scrollSpeedLabel.hasFocus())
                 stylePrefRow(scrollModeLabel, "滚动方式", scrollModeLabel.hasFocus())
                 stylePrefRow(scrollKeyLabel, "方向键滚动", scrollKeyLabel.hasFocus())
-                if (::ttsModelLabel.isInitialized) {
-                    stylePrefRow(ttsModelLabel, "朗读模型", ttsModelLabel.hasFocus())
-                    ttsDownloadBtn.text =
-                        if (com.potaperper.wereadtv.tts.TtsModel.isReady(activity)) "重新下载语音模型"
-                        else "下载语音模型（约 28MB）"
+                if (::ttsVoiceLabel.isInitialized) {
+                    stylePrefRow(ttsVoiceLabel, "朗读音色", ttsVoiceLabel.hasFocus())
                 }
             }
         }
@@ -1074,7 +1048,7 @@ class ThemePanel(
                 cornerTL, cornerTR, cornerBL, cornerBR,
                 updateLineLabel, speedTestBtn,
                 autoScrollLabel, scrollSpeedLabel, scrollModeLabel, scrollKeyLabel,
-                ttsModelLabel, ttsDownloadBtn, ttsDiagBtn,
+                ttsVoiceLabel,
             )
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
             else -> contentAbout.findAllFocusableViews()
@@ -1232,6 +1206,7 @@ class ThemePanel(
                 refreshLayoutLabels()
             }
             updateLineLabel -> cycleUpdateSource(dir)
+            ttsVoiceLabel -> cycleEdgeVoice(dir)
             autoScrollLabel -> {
                 Theme.setAutoScroll(activity, !Theme.autoScroll(activity))
                 refreshLayoutLabels()
@@ -1259,6 +1234,18 @@ class ThemePanel(
             else -> return false
         }
         return true
+    }
+
+    /** 左右键切换 Edge TTS 音色 */
+    private fun cycleEdgeVoice(dir: Int) {
+        val list = Theme.EDGE_VOICES
+        val cur = Theme.edgeVoice(activity)
+        val idx = list.indexOfFirst { it.first == cur }.let { if (it < 0) 0 else it }
+        val next = (idx + dir + list.size) % list.size
+        Theme.setEdgeVoice(activity, list[next].first)
+        refreshLayoutLabels()
+        activity.onTtsVoiceChanged()
+        activity.showToast("朗读音色：${list[next].second}")
     }
 
     /** 左右键在四角内容选项间循环 */
