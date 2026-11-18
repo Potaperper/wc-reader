@@ -131,6 +131,18 @@ object Theme {
     fun verticalPaging(ctx: Context): Boolean = prefs(ctx).getBoolean("verticalPaging", false)
     fun setVerticalPaging(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean("verticalPaging", v).apply() }
 
+    /** 双栏阅读（每屏左右两栏） */
+    fun twoColumn(ctx: Context): Boolean = prefs(ctx).getBoolean("twoColumn", false)
+    fun setTwoColumn(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("twoColumn", v).apply()
+    }
+
+    /** PDF 书籍使用连续纵向滚动，避免分栏裁掉页面内容 */
+    fun pdfScroll(ctx: Context): Boolean = prefs(ctx).getBoolean("pdfScroll", true)
+    fun setPdfScroll(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("pdfScroll", v).apply()
+    }
+
     /** 长按方向键行为：true=跳到上/下一章；false=保持连续快进翻页 */
     fun longPressJump(ctx: Context): Boolean = prefs(ctx).getBoolean("longPressJump", true)
     fun setLongPressJump(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean("longPressJump", v).apply() }

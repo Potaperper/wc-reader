@@ -170,6 +170,16 @@ class MainActivity : Activity() {
         readerView?.onTtsVoiceChanged()
     }
 
+    /** 双栏排版切换 */
+    fun onColumnsChanged() {
+        readerView?.applyColumns()
+    }
+
+    /** PDF 连续滚动开关变化 */
+    fun onPdfModeChanged() {
+        readerView?.applyReaderMode()
+    }
+
     // ---------- 生命周期 ----------
 
     override fun onCreate(savedInstanceState: Bundle?) {

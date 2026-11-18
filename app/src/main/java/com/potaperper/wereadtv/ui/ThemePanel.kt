@@ -67,6 +67,7 @@ class ThemePanel(
     private lateinit var textBrightnessLabel: TextView
     private lateinit var boldLabel: TextView
     private lateinit var fontLabel: TextView
+    private lateinit var twoColumnLabel: TextView
     private lateinit var cornerTL: TextView
     private lateinit var cornerTR: TextView
     private lateinit var cornerBL: TextView
@@ -86,6 +87,7 @@ class ThemePanel(
     private lateinit var scrollSpeedLabel: TextView
     private lateinit var scrollModeLabel: TextView
     private lateinit var scrollKeyLabel: TextView
+    private lateinit var pdfScrollLabel: TextView
     private lateinit var ttsVoiceLabel: TextView
     private lateinit var silentUpdateLabel: TextView
 
@@ -527,6 +529,7 @@ class ThemePanel(
         marginTopLabel = prefRow("上边距")
         marginBottomLabel = prefRow("下边距")
         pageModeLabel = prefRow("翻页方式")
+        twoColumnLabel = prefRow("双栏阅读")
         dirMapLabel = prefRow("翻页方向")
         longPressLabel = prefRow("长按方向键")
         refreshLayoutLabels()
@@ -547,6 +550,7 @@ class ThemePanel(
             addView(space(dip(14)))
             addView(sectionTitle("翻页"))
             addView(pageModeLabel)
+            addView(twoColumnLabel)
             addView(dirMapLabel)
             addView(longPressLabel)
             addView(space(dip(10)))
@@ -749,6 +753,7 @@ class ThemePanel(
         scrollSpeedLabel = prefRow("滚动速度")
         scrollModeLabel = prefRow("滚动方式")
         scrollKeyLabel = prefRow("方向键滚动")
+        pdfScrollLabel = prefRow("PDF 连续滚动")
         ttsVoiceLabel = prefRow("朗读音色")
         refreshLayoutLabels()
 
@@ -792,6 +797,7 @@ class ThemePanel(
             addView(scrollSpeedLabel)
             addView(scrollModeLabel)
             addView(scrollKeyLabel)
+            addView(pdfScrollLabel)
             addView(TextView(activity).apply {
                 text = "开启后阅读页改为连续纵向滚动。方向键可前后滚动（行数可调），顶栏「滚动」按钮继续/暂停；" +
                     "「按字数」会按可见字数自动调整速度。"
@@ -851,6 +857,8 @@ class ThemePanel(
             "方向键滚动" -> "${Theme.scrollKeyLines(activity)} 行"
             "朗读音色" -> Theme.EDGE_VOICES.firstOrNull { it.first == Theme.edgeVoice(activity) }?.second ?: "晓晓（女）"
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
+            "双栏阅读" -> if (Theme.twoColumn(activity)) "开启" else "关闭"
+            "PDF 连续滚动" -> if (Theme.pdfScroll(activity)) "开启" else "关闭"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
             "自动检查更新" -> if (Theme.autoCheckUpdate(activity)) "开启" else "关闭"
             "静默下载新版本" -> if (Theme.silentUpdate(activity)) "开启" else "关闭"
@@ -875,6 +883,7 @@ class ThemePanel(
         stylePrefRow(marginTopLabel, "上边距", marginTopLabel.hasFocus())
         stylePrefRow(marginBottomLabel, "下边距", marginBottomLabel.hasFocus())
         stylePrefRow(pageModeLabel, "翻页方式", pageModeLabel.hasFocus())
+        stylePrefRow(twoColumnLabel, "双栏阅读", twoColumnLabel.hasFocus())
         stylePrefRow(dirMapLabel, "翻页方向", dirMapLabel.hasFocus())
         stylePrefRow(longPressLabel, "长按方向键", longPressLabel.hasFocus())
         if (::fastJumpSecLabel.isInitialized) {
@@ -890,6 +899,7 @@ class ThemePanel(
                 stylePrefRow(scrollSpeedLabel, "滚动速度", scrollSpeedLabel.hasFocus())
                 stylePrefRow(scrollModeLabel, "滚动方式", scrollModeLabel.hasFocus())
                 stylePrefRow(scrollKeyLabel, "方向键滚动", scrollKeyLabel.hasFocus())
+                stylePrefRow(pdfScrollLabel, "PDF 连续滚动", pdfScrollLabel.hasFocus())
                 if (::ttsVoiceLabel.isInitialized) {
                     stylePrefRow(ttsVoiceLabel, "朗读音色", ttsVoiceLabel.hasFocus())
                 }
@@ -1047,7 +1057,7 @@ class ThemePanel(
                 fastJumpSecLabel, fastJumpChaptersLabel,
                 cornerTL, cornerTR, cornerBL, cornerBR,
                 updateLineLabel, speedTestBtn,
-                autoScrollLabel, scrollSpeedLabel, scrollModeLabel, scrollKeyLabel,
+                autoScrollLabel, scrollSpeedLabel, scrollModeLabel, scrollKeyLabel, pdfScrollLabel,
                 ttsVoiceLabel,
             )
             TAB_ACCOUNT -> contentAccount.findAllFocusableViews()
@@ -1195,6 +1205,16 @@ class ThemePanel(
             cornerBL -> cycleCorner(2, dir)
             cornerBR -> cycleCorner(3, dir)
             pageModeLabel -> togglePageMode()
+            twoColumnLabel -> {
+                Theme.setTwoColumn(activity, !Theme.twoColumn(activity))
+                refreshLayoutLabels()
+                activity.onColumnsChanged()
+            }
+            pdfScrollLabel -> {
+                Theme.setPdfScroll(activity, !Theme.pdfScroll(activity))
+                refreshLayoutLabels()
+                activity.onPdfModeChanged()
+            }
             dirMapLabel -> toggleDirMap()
             longPressLabel -> toggleLongPress()
             fastJumpSecLabel -> {

@@ -67,6 +67,7 @@ html,body{margin:0;padding:0;background:${Theme.toHex(bg)};height:100%;overflow:
 html.wr-scroll, html.wr-scroll body{height:auto!important;overflow-y:auto!important;overflow-x:hidden!important;}
 html.wr-scroll #viewport{position:static!important;inset:auto!important;overflow:visible!important;}
 html.wr-scroll #pager{columns:auto!important;column-width:auto!important;height:auto!important;width:auto!important;transform:none!important;transition:none!important;}
+html.wr-pdf #pager img{max-height:none!important;}
 </style>
 <script>
 window.__page = 0;
@@ -78,6 +79,8 @@ window.__marginTopPx = 44;
 window.__marginBottomPx = 44;
 window.__instant = false;
 window.__scrollMode = false;
+window.__twoColumn = false;
+window.__pdfMode = false;
 window.__autoRaf = 0;
 var GAP_FACTOR = 2;  /* 栏间距 = 2×边距，视觉上即左右页边距 */
 
@@ -87,15 +90,21 @@ function relayout(){
   if (window.__scrollMode) return;
   var pager = pagerEl();
   var w = window.innerWidth;
-  var colw = w - 2 * window.__marginPx;
-  var gap = 2 * window.__marginPx;
+  var colw, gap;
+  if (window.__twoColumn) {
+    colw = Math.max(160, (w - 4 * window.__marginPx) / 2);
+    gap = 2 * window.__marginPx;
+  } else {
+    colw = w - 2 * window.__marginPx;
+    gap = 2 * window.__marginPx;
+  }
   pager.style.columnWidth = colw + 'px';
   pager.style.columnGap = gap + 'px';
   pager.style.paddingLeft = window.__marginPx + 'px';
   pager.style.paddingRight = window.__marginPx + 'px';
   pager.style.width = w + 'px';
-  var unit = colw + gap;  /* = innerWidth */
-  window.__totalPages = Math.max(1, Math.round((pager.scrollWidth - 2 * window.__marginPx) / unit + 0.5));
+  /* 双栏时一屏两栏，翻页步长仍是整屏宽度 */
+  window.__totalPages = Math.max(1, Math.round((pager.scrollWidth - 2 * window.__marginPx) / w + 0.5));
   console.log('PAGER_DBG ' + JSON.stringify({
     w: w, colw: colw, gap: gap, scrollW: pager.scrollWidth,
     total: window.__totalPages, page: window.__page,
@@ -318,6 +327,17 @@ window.updateCharsPerScreen = function(){
   var t = (p.innerText || '').length;
   var h = p.scrollHeight || 1;
   window.__charsPerScreen = Math.max(1, t * window.innerHeight / h);
+};
+window.setTwoColumn = function(on, offset, percent){
+  window.__twoColumn = !!on;
+  relayout();
+  if (offset >= 0 || percent > 0) restorePosition(offset, percent);
+  else goTo(window.__page || 0, true);
+};
+window.setPdfMode = function(on){
+  window.__pdfMode = !!on;
+  document.documentElement.classList.toggle('wr-pdf', !!on);
+  applyShellOverride();
 };
 window.setScrollMode = function(on){
   window.__scrollMode = !!on;
@@ -730,7 +750,7 @@ function fixSrc(el, base){
         }
 
         // ---------- 连续滚动模式：短按滚动若干行，长按跳上/下一章 ----------
-        if (Theme.autoScroll(activity)) {
+        if (isScrollLayout()) {
             val down = event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
                 event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
             val up = event.keyCode == KeyEvent.KEYCODE_DPAD_UP ||
@@ -922,9 +942,9 @@ function fixSrc(el, base){
                     applyZoom()
                     applyLayoutPrefs()
                     applyFont()
-                    webView.evaluateJavascript(
-                        "window.setScrollMode(${Theme.autoScroll(activity)})", null,
-                    )
+                    applyColumns()
+                    webView.evaluateJavascript("window.setPdfMode(${isPdfScrollMode()})", null)
+                    webView.evaluateJavascript("window.setScrollMode(${isScrollLayout()})", null)
                     pendingContent?.let { (b, s) -> deliver(b, s) }
                 }
 
@@ -1189,6 +1209,10 @@ function fixSrc(el, base){
         notesAdapter.notifyDataSetChanged()
         val body = extractBody(content.html)
         pendingContent = body to content.style
+        // PDF 书籍默认连续滚动，避免分栏裁切页面内容
+        val pdf = isPdfScrollMode()
+        webView.evaluateJavascript("window.setPdfMode($pdf)", null)
+        webView.evaluateJavascript("window.setScrollMode(${pdf || Theme.autoScroll(activity)})", null)
         if (pageLoaded) deliver(body, content.style)
     }
 
@@ -1363,23 +1387,44 @@ function fixSrc(el, base){
     // ---------- 自动滚动 ----------
 
     /** 应用/关闭连续滚动模式 */
+    private fun isPdfScrollMode(): Boolean =
+        contentFormat == "pdf" && Theme.pdfScroll(activity)
+
+    private fun isScrollLayout(): Boolean =
+        Theme.autoScroll(activity) || isPdfScrollMode()
+
+    /** 双栏排版切换（会保持当前阅读位置） */
+    fun applyColumns() {
+        capturePosition { off, pct ->
+            webView.evaluateJavascript(
+                "window.setTwoColumn(${Theme.twoColumn(activity)}, $off, $pct)", null,
+            )
+        }
+    }
+
     fun applyReaderMode(announce: Boolean = true) {
-        val on = Theme.autoScroll(activity)
+        val on = isScrollLayout()
         updateHudStyle()
         capturePosition { off0, pct0 ->
             val off = if (off0 >= 0) off0 else lastOffset
             val pct = if (pct0 > 0f) pct0 else lastPercent
+            webView.evaluateJavascript("window.setPdfMode(${isPdfScrollMode()})", null)
             webView.evaluateJavascript("window.setScrollMode($on)", null)
             mainHandler.postDelayed({
                 webView.evaluateJavascript(
                     "window.restorePosition($off, $pct)",
                 ) {
-                    if (on) startAutoScroll()
+                    if (Theme.autoScroll(activity)) startAutoScroll()
                     refreshHud()
                 }
             }, 450)
         }
-        if (on && announce) activity.showToast("已进入连续滚动，方向键可前后滚动")
+        if (on && announce) {
+            activity.showToast(
+                if (Theme.autoScroll(activity)) "已进入连续滚动，方向键可前后滚动"
+                else "PDF 模式：连续滚动，方向键可前后滚动",
+            )
+        }
     }
 
     private fun startAutoScroll() {
@@ -1560,7 +1605,7 @@ function fixSrc(el, base){
 
     /** 向 WebView 询问当前页/总页数（或滚动百分比），刷新四角信息 */
     private fun refreshHud() {
-        if (Theme.autoScroll(activity)) {
+        if (isScrollLayout()) {
             webView.evaluateJavascript("window.scrollPercent()") { info ->
                 val pct = info?.trim()?.trim('"')?.toFloatOrNull() ?: 0f
                 updateHud(0, 100, pct)
@@ -1881,8 +1926,8 @@ function fixSrc(el, base){
                     return@post
                 }
                 when {
-                    Theme.autoScroll(activity) -> {
-                        // 滚动模式：按待恢复位置定位，然后继续自动滚动
+                    isScrollLayout() -> {
+                        // 滚动模式：按待恢复位置定位；自动滚动模式下继续播放
                         val off = pendingOffset
                         val pct = pendingPercent
                         pendingOffset = -1
@@ -1894,7 +1939,9 @@ function fixSrc(el, base){
                                 lastOffset = -1
                                 lastPercent = 0f
                             }
-                            mainHandler.postDelayed({ startAutoScroll() }, 250)
+                            if (Theme.autoScroll(activity)) {
+                                mainHandler.postDelayed({ startAutoScroll() }, 250)
+                            }
                             refreshHud()
                         }
                     }
