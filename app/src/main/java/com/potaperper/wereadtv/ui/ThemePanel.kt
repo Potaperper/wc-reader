@@ -753,7 +753,7 @@ class ThemePanel(
         scrollSpeedLabel = prefRow("滚动速度")
         scrollModeLabel = prefRow("滚动方式")
         scrollKeyLabel = prefRow("方向键滚动")
-        pdfScrollLabel = prefRow("PDF 连续滚动")
+        pdfScrollLabel = prefRow("PDF 阅读方式")
         ttsVoiceLabel = prefRow("朗读音色")
         refreshLayoutLabels()
 
@@ -858,7 +858,7 @@ class ThemePanel(
             "朗读音色" -> Theme.EDGE_VOICES.firstOrNull { it.first == Theme.edgeVoice(activity) }?.second ?: "晓晓（女）"
             "翻页方式" -> if (Theme.instantPage(activity)) "瞬时跳页" else "平滑滚动"
             "双栏阅读" -> if (Theme.twoColumn(activity)) "开启" else "关闭"
-            "PDF 连续滚动" -> if (Theme.pdfScroll(activity)) "开启" else "关闭"
+            "PDF 阅读方式" -> if (Theme.pdfPaged(activity)) "手动翻页" else "连续滚动"
             "长按方向键" -> if (Theme.longPressJump(activity)) "跳到上/下一章" else "连续快进"
             "自动检查更新" -> if (Theme.autoCheckUpdate(activity)) "开启" else "关闭"
             "静默下载新版本" -> if (Theme.silentUpdate(activity)) "开启" else "关闭"
@@ -899,7 +899,7 @@ class ThemePanel(
                 stylePrefRow(scrollSpeedLabel, "滚动速度", scrollSpeedLabel.hasFocus())
                 stylePrefRow(scrollModeLabel, "滚动方式", scrollModeLabel.hasFocus())
                 stylePrefRow(scrollKeyLabel, "方向键滚动", scrollKeyLabel.hasFocus())
-                stylePrefRow(pdfScrollLabel, "PDF 连续滚动", pdfScrollLabel.hasFocus())
+                stylePrefRow(pdfScrollLabel, "PDF 阅读方式", pdfScrollLabel.hasFocus())
                 if (::ttsVoiceLabel.isInitialized) {
                     stylePrefRow(ttsVoiceLabel, "朗读音色", ttsVoiceLabel.hasFocus())
                 }
@@ -1211,7 +1211,7 @@ class ThemePanel(
                 activity.onColumnsChanged()
             }
             pdfScrollLabel -> {
-                Theme.setPdfScroll(activity, !Theme.pdfScroll(activity))
+                Theme.setPdfPaged(activity, !Theme.pdfPaged(activity))
                 refreshLayoutLabels()
                 activity.onPdfModeChanged()
             }

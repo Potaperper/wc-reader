@@ -143,6 +143,12 @@ object Theme {
         prefs(ctx).edit().putBoolean("pdfScroll", v).apply()
     }
 
+    /** PDF 翻页方式：true=手动按屏翻页，false=连续滚动 */
+    fun pdfPaged(ctx: Context): Boolean = prefs(ctx).getBoolean("pdfPaged", true)
+    fun setPdfPaged(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("pdfPaged", v).apply()
+    }
+
     /** 长按方向键行为：true=跳到上/下一章；false=保持连续快进翻页 */
     fun longPressJump(ctx: Context): Boolean = prefs(ctx).getBoolean("longPressJump", true)
     fun setLongPressJump(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean("longPressJump", v).apply() }

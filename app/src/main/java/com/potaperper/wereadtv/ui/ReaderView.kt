@@ -402,6 +402,27 @@ window.stopAutoScroll = function(){
 window.scrollPage = function(dir){
   window.scrollBy(0, dir * window.innerHeight * 0.85);
 };
+window.scrollPageSmooth = function(dir, ratio){
+  var step = window.innerHeight * (ratio || 0.9);
+  try {
+    window.scrollBy({top: dir * step, left: 0, behavior: 'smooth'});
+  } catch(e) {
+    window.scrollBy(0, dir * step);
+  }
+};
+window.atScrollBottom = function(){
+  return window.scrollY + window.innerHeight >= document.body.scrollHeight - 6;
+};
+window.atScrollTop = function(){
+  return window.scrollY <= 3;
+};
+window.scrollPageInfo = function(ratio){
+  var step = Math.max(1, window.innerHeight * (ratio || 0.9));
+  var max = Math.max(0, document.body.scrollHeight - window.innerHeight);
+  var total = Math.max(1, Math.ceil(max / step) + 1);
+  var page = Math.min(total, Math.floor(window.scrollY / step) + 1);
+  return page + ',' + total;
+};
 window.scrollLines = function(dir, lines){
   var p = pagerEl();
   var lh = 36;
@@ -583,6 +604,9 @@ function fixSrc(el, base){
 
     /** 跨章返回时：加载上一章后自动跳到该章最后一页 */
     private var pendingLastPage = false
+
+    /** PDF 手动翻页：向前翻到章首时，加载上一章后滚到底部 */
+    private var pendingBottom = false
 
     /** 打开章节后要恢复的字符偏移/章节百分比 */
     private var pendingOffset = -1
@@ -777,9 +801,13 @@ function fixSrc(el, base){
                 dirKeyDown = false
                 if (longPressFired) return true
                 if (now - dirDownAt < 600) {
-                    val lines = Theme.scrollKeyLines(activity)
-                    webView.evaluateJavascript("window.scrollLines($dir, $lines)", null)
-                    mainHandler.postDelayed({ refreshHud() }, 300)
+                    if (isPdfPaged() && !Theme.autoScroll(activity)) {
+                        handlePdfPageTurn(dir)
+                    } else {
+                        val lines = Theme.scrollKeyLines(activity)
+                        webView.evaluateJavascript("window.scrollLines($dir, $lines)", null)
+                        mainHandler.postDelayed({ refreshHud() }, 300)
+                    }
                 }
                 return true
             }
@@ -943,7 +971,7 @@ function fixSrc(el, base){
                     applyLayoutPrefs()
                     applyFont()
                     applyColumns()
-                    webView.evaluateJavascript("window.setPdfMode(${isPdfScrollMode()})", null)
+                    webView.evaluateJavascript("window.setPdfMode(${isPdfMode()})", null)
                     webView.evaluateJavascript("window.setScrollMode(${isScrollLayout()})", null)
                     pendingContent?.let { (b, s) -> deliver(b, s) }
                 }
@@ -1210,7 +1238,7 @@ function fixSrc(el, base){
         val body = extractBody(content.html)
         pendingContent = body to content.style
         // PDF 书籍默认连续滚动，避免分栏裁切页面内容
-        val pdf = isPdfScrollMode()
+        val pdf = isPdfMode()
         webView.evaluateJavascript("window.setPdfMode($pdf)", null)
         webView.evaluateJavascript("window.setScrollMode(${pdf || Theme.autoScroll(activity)})", null)
         if (pageLoaded) deliver(body, content.style)
@@ -1387,11 +1415,13 @@ function fixSrc(el, base){
     // ---------- 自动滚动 ----------
 
     /** 应用/关闭连续滚动模式 */
-    private fun isPdfScrollMode(): Boolean =
-        contentFormat == "pdf" && Theme.pdfScroll(activity)
+    private fun isPdfMode(): Boolean = contentFormat == "pdf"
+
+    private fun isPdfPaged(): Boolean =
+        isPdfMode() && Theme.pdfPaged(activity)
 
     private fun isScrollLayout(): Boolean =
-        Theme.autoScroll(activity) || isPdfScrollMode()
+        Theme.autoScroll(activity) || isPdfMode()
 
     /** 双栏排版切换（会保持当前阅读位置） */
     fun applyColumns() {
@@ -1408,7 +1438,7 @@ function fixSrc(el, base){
         capturePosition { off0, pct0 ->
             val off = if (off0 >= 0) off0 else lastOffset
             val pct = if (pct0 > 0f) pct0 else lastPercent
-            webView.evaluateJavascript("window.setPdfMode(${isPdfScrollMode()})", null)
+            webView.evaluateJavascript("window.setPdfMode(${isPdfMode()})", null)
             webView.evaluateJavascript("window.setScrollMode($on)", null)
             mainHandler.postDelayed({
                 webView.evaluateJavascript(
@@ -1605,6 +1635,18 @@ function fixSrc(el, base){
 
     /** 向 WebView 询问当前页/总页数（或滚动百分比），刷新四角信息 */
     private fun refreshHud() {
+        if (isPdfPaged() && !Theme.autoScroll(activity)) {
+            webView.evaluateJavascript("window.scrollPageInfo(0.9)") { info ->
+                val raw = info?.trim()?.trim('"') ?: return@evaluateJavascript
+                val parts = raw.split(",")
+                if (parts.size == 2) {
+                    val page = parts[0].trim().toIntOrNull() ?: 1
+                    val total = parts[1].trim().toIntOrNull() ?: 1
+                    updateHud((page - 1).coerceAtLeast(0), total)
+                }
+            }
+            return
+        }
         if (isScrollLayout()) {
             webView.evaluateJavascript("window.scrollPercent()") { info ->
                 val pct = info?.trim()?.trim('"')?.toFloatOrNull() ?: 0f
@@ -1719,6 +1761,44 @@ function fixSrc(el, base){
             }
         } else if (toast) {
             activity.showToast(if (dir > 0) "已经是最后一章" else "已经是第一章")
+        }
+    }
+
+    /** PDF 手动翻页：按屏滚动；到边界则跨章 */
+    private fun handlePdfPageTurn(dir: Int) {
+        if (dir > 0) {
+            webView.evaluateJavascript("window.atScrollBottom()") { r ->
+                mainHandler.post {
+                    if (r?.contains("true") == true) {
+                        val target = currentChapterIdx + 1
+                        if (target in chapters.indices) {
+                            loadChapter(target, 0, 0f)
+                        } else {
+                            activity.showToast("已经是最后一章")
+                        }
+                    } else {
+                        webView.evaluateJavascript("window.scrollPageSmooth(1, 0.9)", null)
+                        mainHandler.postDelayed({ refreshHud() }, 450)
+                    }
+                }
+            }
+        } else {
+            webView.evaluateJavascript("window.atScrollTop()") { r ->
+                mainHandler.post {
+                    if (r?.contains("true") == true) {
+                        val target = currentChapterIdx - 1
+                        if (target >= 0) {
+                            pendingBottom = true
+                            loadChapter(target, 0, 0f)
+                        } else {
+                            activity.showToast("已经是第一章")
+                        }
+                    } else {
+                        webView.evaluateJavascript("window.scrollPageSmooth(-1, 0.9)", null)
+                        mainHandler.postDelayed({ refreshHud() }, 450)
+                    }
+                }
+            }
         }
     }
 
@@ -1928,21 +2008,37 @@ function fixSrc(el, base){
                 when {
                     isScrollLayout() -> {
                         // 滚动模式：按待恢复位置定位；自动滚动模式下继续播放
-                        val off = pendingOffset
-                        val pct = pendingPercent
-                        pendingOffset = -1
-                        pendingPercent = 0f
-                        webView.evaluateJavascript(
-                            "window.restorePosition($off, $pct)",
-                        ) {
-                            if (off < 0 && pct <= 0f) {
+                        if (pendingBottom) {
+                            pendingBottom = false
+                            pendingOffset = -1
+                            pendingPercent = 0f
+                            webView.evaluateJavascript(
+                                "window.scrollTo(0, document.body.scrollHeight)",
+                            ) {
                                 lastOffset = -1
-                                lastPercent = 0f
+                                lastPercent = 100f
+                                if (Theme.autoScroll(activity)) {
+                                    mainHandler.postDelayed({ startAutoScroll() }, 250)
+                                }
+                                refreshHud()
                             }
-                            if (Theme.autoScroll(activity)) {
-                                mainHandler.postDelayed({ startAutoScroll() }, 250)
+                        } else {
+                            val off = pendingOffset
+                            val pct = pendingPercent
+                            pendingOffset = -1
+                            pendingPercent = 0f
+                            webView.evaluateJavascript(
+                                "window.restorePosition($off, $pct)",
+                            ) {
+                                if (off < 0 && pct <= 0f) {
+                                    lastOffset = -1
+                                    lastPercent = 0f
+                                }
+                                if (Theme.autoScroll(activity)) {
+                                    mainHandler.postDelayed({ startAutoScroll() }, 250)
+                                }
+                                refreshHud()
                             }
-                            refreshHud()
                         }
                     }
                     pendingLastPage -> {
